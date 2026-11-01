@@ -200,6 +200,7 @@ Endings: `finished` (the agent called finish), `ended` (it stopped without calli
 - **Follow-up prompts on the same canvas** ("now add a volleyball net", "now add people playing"). Parked because of perspective: something "behind" an existing object would mean repainting the object over it. It's interesting, but a bigger problem.
 - **SVG fallback (plan B).** If the custom system fails badly, try letting the agent describe shapes in SVG-like terms to see whether familiarity is what made the difference. Deliberately not the default, because it defeats the main test.
 - **Hard mode** with an unfamiliar coordinate system (y up, or a non-pixel scale).
+- **Final touches inside `finish`.** An optional `shapes` list on `finish`, painted (same checks, all-or-nothing, same budget) before the drawing ends, so the last batch and the finish share one model call instead of two. An invalid batch would paint nothing and not finish. It saves one mostly-cached call and its reasoning per drawing. Parked: the saving is small now caching works, it changes how the feed and logs show the last batch, and with full JSON shapes it would copy the shape schema into every request. Revisit after the compact shape format, when shapes are short strings. Not parallel tool calls: they would break one tool call per turn everywhere (a `look` could run before a `paint` in the same response lands).
 - Free three-point triangles, polygons or curves.
 - A canvas size or background colour setting.
 - A side-by-side comparison view. 
