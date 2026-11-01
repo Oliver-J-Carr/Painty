@@ -29,49 +29,51 @@
 
   <main class="studio">
     <section class="easel" aria-label="Canvas">
-      <div class="canvas-wrap">
-        <svg class="canvas" id="canvas" viewBox="0 0 512 512" role="img" aria-label="Painty's canvas">
-          <rect width="512" height="512" fill="#ffffff"/>
-          <g id="paint-layer"></g>
-        </svg>
-      </div>
-
-      <div class="meters" id="meters" aria-live="polite">
-        <div class="meter">
-          <span class="meter-label">Shapes</span>
-          <span class="meter-bar"><span class="meter-fill" id="shapes-fill"></span></span>
-          <span class="meter-count" id="shapes-count">0 of 60</span>
+      <div class="easel-scroll">
+        <div class="canvas-wrap">
+          <svg class="canvas" id="canvas" viewBox="0 0 512 512" role="img" aria-label="Painty's canvas">
+            <rect width="512" height="512" fill="#ffffff"/>
+            <g id="paint-layer"></g>
+          </svg>
         </div>
-        <div class="meter" id="looks-meter">
-          <span class="meter-label">Looks</span>
-          <span class="eyes" id="looks-eyes"></span>
-          <span class="meter-count" id="looks-count">0 of 5</span>
+
+        <div class="meters" id="meters" aria-live="polite">
+          <div class="meter">
+            <span class="meter-label">Shapes</span>
+            <span class="meter-bar"><span class="meter-fill" id="shapes-fill"></span></span>
+            <span class="meter-count" id="shapes-count">0 of 60</span>
+          </div>
+          <div class="meter" id="looks-meter">
+            <span class="meter-label">Looks</span>
+            <span class="eyes" id="looks-eyes"></span>
+            <span class="meter-count" id="looks-count">0 of 5</span>
+          </div>
         </div>
-      </div>
 
-      <p class="prompt-shown" id="prompt-shown" hidden></p>
+        <p class="prompt-shown" id="prompt-shown" hidden></p>
 
-      <div class="outcome outcome-row" id="paused" hidden>
-        <p class="outcome-title" id="paused-text">Out of shapes.</p>
-        <div class="outcome-actions">
-          <button type="button" class="primary" id="keep-going">Keep going</button>
-          <button type="button" class="ghost-dark" id="finish-here">Finish here</button>
+        <div class="outcome outcome-row" id="paused" hidden>
+          <p class="outcome-title" id="paused-text">Out of shapes.</p>
+          <div class="outcome-actions">
+            <button type="button" class="primary" id="keep-going">Keep going</button>
+            <button type="button" class="ghost-dark" id="finish-here">Finish here</button>
+          </div>
         </div>
-      </div>
 
-      <div class="outcome" id="finished" hidden>
-        <div class="outcome-row">
-          <p class="painting-title" id="finished-title"></p>
-          <button type="button" class="ghost-dark" id="view-saved" hidden>View in gallery</button>
+        <div class="outcome" id="finished" hidden>
+          <div class="outcome-row">
+            <p class="painting-title" id="finished-title"></p>
+            <button type="button" class="ghost-dark" id="view-saved" hidden>View in gallery</button>
+          </div>
+          <p class="painting-note" id="finished-note"></p>
+          <p class="outcome-meta" id="finished-meta"></p>
         </div>
-        <p class="painting-note" id="finished-note"></p>
-        <p class="outcome-meta" id="finished-meta"></p>
-      </div>
 
-      <div class="outcome outcome-row" id="halted" hidden>
-        <p class="outcome-title" id="halted-text">Stopped.</p>
-        <div class="outcome-actions">
-          <button type="button" class="ghost-dark" id="save-halted">Save to gallery</button>
+        <div class="outcome outcome-row" id="halted" hidden>
+          <p class="outcome-title" id="halted-text">Stopped.</p>
+          <div class="outcome-actions">
+            <button type="button" class="ghost-dark" id="save-halted">Save to gallery</button>
+          </div>
         </div>
       </div>
 
@@ -126,9 +128,11 @@
         <h2 id="gallery-title">Gallery</h2>
         <button type="button" class="close" id="close-gallery" aria-label="Close gallery">×</button>
       </div>
-      <div id="gallery-grid" class="gallery-grid"></div>
-      <p class="feed-empty" id="gallery-empty" hidden>No paintings yet. Finished drawings are saved here automatically.</p>
-      <article id="gallery-detail" class="gallery-detail" hidden></article>
+      <div class="gallery-body" id="gallery-body">
+        <div id="gallery-grid" class="gallery-grid"></div>
+        <p class="feed-empty" id="gallery-empty" hidden>No paintings yet. Finished drawings are saved here automatically.</p>
+        <article id="gallery-detail" class="gallery-detail" hidden></article>
+      </div>
     </div>
   </div>
 

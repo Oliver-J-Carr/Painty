@@ -96,6 +96,16 @@ function previewBudget(settings) {
 const feedList = $("feed-list");
 const entries = new Map(); // tool call id -> <li>
 
+// Follow new activity unless the reader has scrolled up to look at something.
+let followFeed = true;
+feedList.addEventListener("scroll", () => {
+  followFeed = feedList.scrollHeight - feedList.scrollTop - feedList.clientHeight < 40;
+});
+// Instant, not smooth: a smooth scroll is cut short by the next entry arriving.
+function followFeedEnd() {
+  if (followFeed) feedList.scrollTop = feedList.scrollHeight;
+}
+
 function addEntry({ kind, text, detail, status, tool, key }) {
   const li = el("li", "entry");
   li.dataset.kind = kind || "agent";
@@ -106,7 +116,7 @@ function addEntry({ kind, text, detail, status, tool, key }) {
   feedList.appendChild(li);
   $("feed-empty").hidden = true;
   if (key) entries.set(key, li);
-  li.scrollIntoView({ block: "nearest", behavior: reducedMotion ? "auto" : "smooth" });
+  followFeedEnd();
   return li;
 }
 
@@ -116,6 +126,7 @@ function onActivity(e) {
   if (e.status === "running" || !li) { addEntry(e); return; }
   li.dataset.status = e.status;
   if (e.result) li.appendChild(el("p", "entry-result", e.result));
+  followFeedEnd();
 }
 
 function onLook(e) {
@@ -126,13 +137,16 @@ function onLook(e) {
   const img = el("img");
   img.src = e.image;
   img.alt = `What Painty saw on look ${e.n}`;
+  img.addEventListener("load", followFeedEnd);
   btn.appendChild(img);
   btn.addEventListener("click", () => openLightbox(e.image, `Look ${e.n}: ${e.focus || ""}`));
   li.appendChild(btn);
+  followFeedEnd();
 }
 
 function clearFeed() {
   feedList.replaceChildren();
+  followFeed = true;
   entries.clear();
   $("feed-empty").hidden = false;
 }
@@ -309,6 +323,7 @@ async function openGallery(focusId = null) {
   $("gallery").hidden = false;
   $("gallery-detail").hidden = true;
   $("gallery-grid").hidden = false;
+  $("gallery-body").scrollTop = 0;
   let items = [];
   try {
     items = await (await fetch("/api/gallery")).json();
@@ -319,6 +334,11 @@ async function openGallery(focusId = null) {
   const focus = focusId && items.find((m) => m.id === focusId);
   if (focus) showDetail(focus);
   else $("close-gallery").focus();
+}
+
+const PROMPT_PREVIEW_CHARS = 80;
+function preview(text) {
+  return text.length > PROMPT_PREVIEW_CHARS ? `${text.slice(0, PROMPT_PREVIEW_CHARS).trimEnd()}…` : text;
 }
 
 function summary(m) {
@@ -337,11 +357,15 @@ function renderGallery(items) {
     img.src = `/gallery/${encodeURIComponent(m.id)}/painting.png`;
     img.alt = m.title;
     img.loading = "lazy";
-    card.append(img, el("h3", "", m.title), el("p", "", m.prompt), el("p", "", summary(m)));
+    const text = el("div", "gallery-text");
+    text.append(el("h3", "", m.title), el("p", "gallery-prompt", preview(m.prompt)), el("p", "gallery-meta", summary(m)));
+    card.append(img, text);
     card.addEventListener("click", () => showDetail(m));
     grid.appendChild(card);
   }
 }
+
+let gridScroll = 0; // where the grid was scrolled to, restored by "Back to all paintings"
 
 function showDetail(m) {
   const base = `/gallery/${encodeURIComponent(m.id)}`;
@@ -358,7 +382,11 @@ function showDetail(m) {
   const right = el("div");
   const back = el("button", "ghost-dark back", "Back to all paintings");
   back.type = "button";
-  back.addEventListener("click", () => { d.hidden = true; $("gallery-grid").hidden = false; });
+  back.addEventListener("click", () => {
+    d.hidden = true;
+    $("gallery-grid").hidden = false;
+    $("gallery-body").scrollTop = gridScroll;
+  });
   right.append(back, el("h3", "", m.title), el("p", "painting-note", m.note || ""));
 
   const endings = { finished: "Painty finished it", ended: "Painty stopped without finishing", saved: "You saved it" };
@@ -403,8 +431,10 @@ function showDetail(m) {
   }
 
   d.append(left, right);
+  gridScroll = $("gallery-body").scrollTop;
   $("gallery-grid").hidden = true;
   d.hidden = false;
+  $("gallery-body").scrollTop = 0;
   back.focus();
 }
 

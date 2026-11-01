@@ -26,6 +26,8 @@
 html, body { height: 100%; }
 body {
   margin: 0;
+  /* Top bar on top, studio fills the rest: no guessed heights, so the page never overflows. */
+  display: flex; flex-direction: column;
   color: var(--paper);
   font: 400 15px/1.5 var(--ui);
   font-variation-settings: "CASL" 0;
@@ -78,10 +80,14 @@ button, input, select { font: inherit; }
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
   gap: 24px;
+  grid-template-rows: minmax(0, 1fr);
   padding: 4px 24px 24px;
-  height: calc(100vh - 66px);
+  flex: 1; min-height: 0;
 }
-.easel { display: flex; flex-direction: column; align-items: center; gap: 14px; min-height: 0; overflow-y: auto; padding: 8px 0; }
+/* The easel holds a scrolling area and, below it, the prompt box. They are siblings, so scrolled
+   content ends at the box's edge instead of passing behind it, and the box needs no background. */
+.easel { display: flex; flex-direction: column; align-items: center; min-height: 0; }
+.easel-scroll { flex: 1; min-height: 0; width: 100%; overflow-y: auto; display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 8px 0; }
 .canvas-wrap {
   /* Leave room below for the meters, a result card and the prompt box. */
   width: min(100%, max(300px, calc(100vh - 390px)), 640px);
@@ -122,10 +128,10 @@ button, input, select { font: inherit; }
 .outcome .ghost-dark { padding: 6px 12px; }
 /* Painty's own words get the casual cut of the typeface. */
 .painting-title { margin: 0; font-size: 22px; font-weight: 700; font-variation-settings: "CASL" 1; flex: 1 1 auto; }
-.painting-note { margin: 4px 0 0; font-variation-settings: "CASL" 1; }
+.painting-note { margin: 4px 0 0; font-variation-settings: "CASL" 1; max-height: 6em; overflow-y: auto; }
 
 /* ---------- composer ---------- */
-.composer { display: flex; gap: 10px; width: min(100%, 640px); }
+.composer { flex: none; display: flex; gap: 10px; width: min(100%, 640px); padding: 14px 0 8px; }
 .composer input {
   flex: 1; min-width: 0; padding: 11px 14px; border-radius: var(--radius);
   border: 0; background: var(--paper); color: var(--graphite);
@@ -180,12 +186,28 @@ button, input, select { font: inherit; }
   display: flex; align-items: flex-start; justify-content: center;
   padding: 32px var(--gutter); overflow-y: auto;
 }
-.overlay-inner { background: var(--paper); color: var(--graphite); border-radius: var(--radius); width: min(1100px, 100%); padding: 18px 22px 24px; }
-.gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 18px; }
-.gallery-card { border: 0; padding: 0; background: none; text-align: left; cursor: pointer; color: inherit; }
+/* The gallery window keeps a fixed size; only .gallery-body scrolls, so the title and close button stay put. */
+#gallery { overflow: hidden; }
+.overlay-inner {
+  background: var(--paper); color: var(--graphite); border-radius: var(--radius); width: min(1100px, 100%);
+  padding: 18px 22px 0; height: 100%;
+  display: flex; flex-direction: column;
+}
+.overlay-inner .drawer-head { flex: none; padding-bottom: 8px; border-bottom: 1px solid var(--paper-edge); }
+.gallery-body { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 6px 24px 0; }
+/* Each card spans two rows of the shared grid (image, then text) through subgrid, so every image
+   in a band lines up and only the text row below it varies in height. */
+.gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); column-gap: 18px; row-gap: 0; }
+.gallery-card {
+  display: grid; grid-row: span 2; grid-template-rows: subgrid; align-content: start;
+  border: 0; padding: 0 0 20px; background: none; text-align: left; cursor: pointer; color: inherit;
+}
 .gallery-card img { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; box-shadow: 0 0 0 1px var(--paper-edge), 0 6px 14px -8px rgba(0, 0, 0, 0.4); }
-.gallery-card h3 { margin: 8px 0 0; font-size: 15px; font-variation-settings: "CASL" 1; }
-.gallery-card p { margin: 2px 0 0; font-size: 13px; color: var(--graphite-soft); }
+.gallery-text { padding-top: 8px; min-width: 0; }
+.gallery-card h3 { margin: 0; font-size: 15px; font-weight: 700; font-variation-settings: "CASL" 1; }
+.gallery-card p { margin: 2px 0 0; font-size: 13px; overflow-wrap: anywhere; }
+.gallery-card .gallery-prompt { font-weight: 550; color: var(--graphite); }
+.gallery-card .gallery-meta { font-weight: 400; color: var(--graphite-soft); }
 .gallery-detail { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 360px); gap: 24px; }
 .gallery-detail .big { width: 100%; box-shadow: 0 0 0 1px var(--paper-edge); }
 .gallery-detail h3 { margin: 0; font-size: 24px; font-variation-settings: "CASL" 1; }
@@ -214,8 +236,9 @@ button, input, select { font: inherit; }
 @media (max-width: 860px) {
   .topbar { flex-wrap: wrap; padding: 12px var(--gutter); gap: 10px 16px; }
   .status { order: 3; flex-basis: 100%; }
-  .studio { grid-template-columns: 1fr; height: auto; padding: 4px var(--gutter) var(--gutter); }
-  .easel { overflow: visible; }
+  html, body { height: auto; min-height: 100%; }
+  .studio { grid-template-columns: 1fr; grid-template-rows: none; flex: none; padding: 4px var(--gutter) var(--gutter); }
+  .easel-scroll { overflow: visible; }
   .canvas-wrap { width: 100%; }
   .feed { max-height: 70vh; }
   .gallery-detail { grid-template-columns: 1fr; }
