@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Painty</title>
+  <link rel="icon" href="/favicon.ico" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@500;600&family=Recursive:slnt,wght,CASL@-15..0,400..700,0..1&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-name">Painty</span>
+      <svg class="brand-shapes" viewBox="0 0 54 14" aria-hidden="true">
+        <circle cx="7" cy="7" r="6" fill="#e8483b"/>
+        <polygon points="27,1 34,13 20,13" fill="#f4b400"/>
+        <rect x="41" y="1" width="12" height="12" fill="#2f7fd8"/>
+      </svg>
+    </div>
+    <p class="status" id="status" data-state="connecting">Connecting…</p>
+    <nav class="topbar-actions">
+      <button type="button" class="ghost" id="open-gallery">Gallery</button>
+      <button type="button" class="ghost" id="open-settings" aria-expanded="false" aria-controls="settings">Settings</button>
+    </nav>
+  </header>
+
+  <main class="studio">
+    <section class="easel" aria-label="Canvas">
+      <div class="canvas-wrap">
+        <svg class="canvas" id="canvas" viewBox="0 0 512 512" role="img" aria-label="Painty's canvas">
+          <rect width="512" height="512" fill="#ffffff"/>
+          <g id="paint-layer"></g>
+        </svg>
+      </div>
+
+      <div class="meters" id="meters" aria-live="polite">
+        <div class="meter">
+          <span class="meter-label">Shapes</span>
+          <span class="meter-bar"><span class="meter-fill" id="shapes-fill"></span></span>
+          <span class="meter-count" id="shapes-count">0 of 60</span>
+        </div>
+        <div class="meter" id="looks-meter">
+          <span class="meter-label">Looks</span>
+          <span class="eyes" id="looks-eyes"></span>
+          <span class="meter-count" id="looks-count">0 of 5</span>
+        </div>
+      </div>
+
+      <p class="prompt-shown" id="prompt-shown" hidden></p>
+
+      <div class="outcome outcome-row" id="paused" hidden>
+        <p class="outcome-title" id="paused-text">Out of shapes.</p>
+        <div class="outcome-actions">
+          <button type="button" class="primary" id="keep-going">Keep going</button>
+          <button type="button" class="ghost-dark" id="finish-here">Finish here</button>
+        </div>
+      </div>
+
+      <div class="outcome" id="finished" hidden>
+        <div class="outcome-row">
+          <p class="painting-title" id="finished-title"></p>
+          <button type="button" class="ghost-dark" id="view-saved" hidden>View in gallery</button>
+        </div>
+        <p class="painting-note" id="finished-note"></p>
+        <p class="outcome-meta" id="finished-meta"></p>
+      </div>
+
+      <div class="outcome outcome-row" id="halted" hidden>
+        <p class="outcome-title" id="halted-text">Stopped.</p>
+        <div class="outcome-actions">
+          <button type="button" class="ghost-dark" id="save-halted">Save to gallery</button>
+        </div>
+      </div>
+
+      <form class="composer" id="composer" autocomplete="off">
+        <label for="prompt" class="visually-hidden">What should Painty paint?</label>
+        <input id="prompt" name="prompt" type="text" maxlength="500"
+               placeholder="Try: a ginger cat sitting in the sun" disabled>
+        <button type="submit" class="primary" id="paint" disabled>Paint</button>
+        <button type="button" class="stop" id="stop" hidden>Stop</button>
+      </form>
+    </section>
+
+    <aside class="feed" aria-label="Agent activity">
+      <h2 class="feed-head">What Painty is doing</h2>
+      <ol class="feed-list" id="feed-list"></ol>
+      <p class="feed-empty" id="feed-empty">Describe a picture and every brush stroke, look and decision shows up here.</p>
+    </aside>
+  </main>
+
+  <!-- Settings drawer -->
+  <aside class="drawer" id="settings" aria-label="Settings" hidden>
+    <div class="drawer-head">
+      <h2>Settings</h2>
+      <button type="button" class="close" id="close-settings" aria-label="Close settings">×</button>
+    </div>
+    <form id="settings-form" class="settings-form">
+      <fieldset>
+        <legend>Painter</legend>
+        <label>Model <select name="model" id="set-model"></select></label>
+        <label>Reasoning effort <select name="reasoning_effort" id="set-effort"></select></label>
+        <label class="toggle"><input type="checkbox" name="vision" id="set-vision"> Let Painty see the canvas</label>
+      </fieldset>
+      <fieldset>
+        <legend>Each drawing gets</legend>
+        <label>Shapes <input type="number" name="shape_budget" inputmode="numeric"></label>
+        <label>Looks <input type="number" name="look_budget" inputmode="numeric"></label>
+        <label>Most shapes in one paint call <input type="number" name="max_shapes_per_call" inputmode="numeric"></label>
+      </fieldset>
+      <fieldset>
+        <legend>Keep going adds</legend>
+        <label>Shapes <input type="number" name="top_up_shapes" inputmode="numeric"></label>
+        <label>Looks <input type="number" name="top_up_looks" inputmode="numeric"></label>
+      </fieldset>
+      <p class="settings-help" id="settings-help">Changes save as you make them and apply to the next drawing. Keep going uses the top-up amounts set when you click it.</p>
+    </form>
+  </aside>
+
+  <!-- Gallery overlay -->
+  <div class="overlay" id="gallery" role="dialog" aria-modal="true" aria-labelledby="gallery-title" hidden>
+    <div class="overlay-inner">
+      <div class="drawer-head">
+        <h2 id="gallery-title">Gallery</h2>
+        <button type="button" class="close" id="close-gallery" aria-label="Close gallery">×</button>
+      </div>
+      <div id="gallery-grid" class="gallery-grid"></div>
+      <p class="feed-empty" id="gallery-empty" hidden>No paintings yet. Finished drawings are saved here automatically.</p>
+      <article id="gallery-detail" class="gallery-detail" hidden></article>
+    </div>
+  </div>
+
+  <!-- Enlarged look -->
+  <div class="overlay" id="lightbox" role="dialog" aria-modal="true" aria-label="What Painty saw" hidden>
+    <figure class="lightbox-figure">
+      <img id="lightbox-img" alt="">
+      <figcaption id="lightbox-caption"></figcaption>
+    </figure>
+  </div>
+
+  <div class="toast" id="toast" role="alert" hidden></div>
+
+  <script type="module" src="/static/app.js"></script>
+</body>
+</html>

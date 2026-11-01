@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+
+# Paintings and saved settings (keep the folder itself)
+data/*
+!data/.gitkeep
+
+# Personal coding-agent notes (see AGENTS.md for the shared ones)
+CLAUDE.local.md

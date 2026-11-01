@@ -1,0 +1,138 @@
+"""Tools the painter agent can call.
+
+paint  lays down an ordered batch of shapes (the only way to put paint down)
+look   shows the agent a picture of the canvas (only when vision is on)
+finish ends the drawing with a title and a short artist's note
+
+Errors are returned as "Error: ..." text, not raised, so the model can read
+them and try again. A batch with any invalid shape paints nothing at all, so
+the layering the agent planned is never left half done.
+
+Docstrings matter: the SDK sends them to the model as tool descriptions.
+"""
+
+from __future__ import annotations
+
+from agents import RunContextWrapper, ToolOutputImage, ToolOutputText, function_tool
+
+from .canvas import Shape
+from .context import PaintyContext
+from .view import GRID_STEP, agent_view_png, data_url
+
+Ctx = RunContextWrapper[PaintyContext]
+
+MAX_TITLE = 80
+MAX_NOTE = 500
+
+
+def _left(c: PaintyContext) -> str:
+    b = c.budget
+    text = f"Shapes left: {b.shapes_left} of {b.shapes_total}."
+    if c.settings.vision:
+        text += f" Looks left: {b.looks_left} of {b.looks_total}."
+    return text
+
+
+@function_tool
+async def paint(ctx: Ctx, shapes: list[Shape], note: str) -> str:
+    """Paint a batch of shapes onto the canvas, in the order given.
+
+    Paint is permanent. Each shape is laid on top of everything painted before it,
+    so where shapes overlap the later one covers the earlier one (partly, if its
+    opacity is below 1). Nothing can be erased: fix a mistake by painting over it.
+    Plan each batch back to front: the first shape in the list goes underneath.
+
+    If any shape in the batch is invalid, nothing is painted and you get a list of
+    the problems. Fix them and send the whole batch again. Invalid batches cost no budget.
+
+    Args:
+        shapes: The shapes to paint, bottom layer first.
+        note: A few words on what this batch adds, e.g. "sky and sea" or "shading under the chin".
+    """
+    c = ctx.context
+    b = c.budget
+    limit = c.settings.max_shapes_per_call
+    if not shapes:
+        return "Error: the batch is empty. Send at least one shape."
+    if len(shapes) > limit:
+        return (f"Error: nothing was painted. A batch can hold at most {limit} shapes and this one "
+                f"has {len(shapes)}. Split it into smaller batches, in the same order.")
+    if len(shapes) > b.shapes_left:
+        return (f"Error: nothing was painted. Only {b.shapes_left} shapes are left in your budget "
+                f"and this batch has {len(shapes)}. Choose the most important ones.")
+
+    errors, notes = c.canvas.check(shapes)
+    if errors:
+        listed = "\n".join(f"- {e}" for e in errors)
+        return ("Error: nothing was painted, because of these problems "
+                "(shape numbers count from 1 within this batch):\n"
+                f"{listed}\nFix them and send the whole batch again.")
+
+    async with c.paint_lock:
+        first = len(c.canvas) + 1
+        painted = c.canvas.add(shapes)
+        b.shapes_used += len(painted)
+        await c.emit({"type": "shapes", "key": ctx.tool_call_id,
+                      "shapes": [{"n": p.n, "svg": p.svg} for p in painted]})
+        await c.send_budget()
+
+    last = first + len(painted) - 1
+    span = f"shape {first}" if first == last else f"shapes {first} to {last}"
+    result = f"Painted {len(painted)} ({span} on the canvas). {_left(c)}"
+    if notes:
+        result += "\nNotes: " + "; ".join(notes) + "."
+    if b.shapes_left == 0:
+        result += "\nYour shape budget is used up, so the drawing pauses here."
+    return result
+
+
+@function_tool
+async def look(ctx: Ctx, focus: str) -> list[ToolOutputText | ToolOutputImage]:
+    """Look at the canvas as it is right now.
+
+    Your view has a numbered ruler around the edge and faint grey grid lines every
+    64 px, to help you match what you see to coordinates. The ruler and grid are
+    only in your view: they are not paint and are not part of the picture.
+
+    Each look uses one look from your budget, so look after a meaningful stage
+    rather than after every small change.
+
+    Args:
+        focus: What you want to check, e.g. "are the eyes level and evenly spaced?"
+    """
+    c = ctx.context
+    b = c.budget
+    if b.looks_left <= 0:
+        return [ToolOutputText(text="Error: no looks left. Carry on from what you already know, "
+                                    "or call finish if the painting is done.")]
+
+    png = agent_view_png(c.canvas.to_svg(), c.canvas.size)
+    b.looks_used += 1
+    c.looks.append(png)
+    url = data_url(png)
+    await c.emit({"type": "look", "key": ctx.tool_call_id, "n": b.looks_used,
+                  "focus": focus, "image": url})
+    await c.send_budget()
+    text = (f"Look {b.looks_used}: the canvas after {len(c.canvas)} shapes. "
+            f"Ruler and grid lines (every {GRID_STEP} px) are in your view only. {_left(c)}")
+    return [ToolOutputText(text=text), ToolOutputImage(image_url=url, detail="high")]
+
+
+@function_tool
+async def finish(ctx: Ctx, title: str, note: str) -> str:
+    """Finish the painting. Call this once, when the picture is complete or as
+    good as you can make it. Painting stops after this call.
+
+    Args:
+        title: A short title for the painting, e.g. "Ginger cat in the sun".
+        note: One or two sentences for the viewer: what you painted and how.
+    """
+    c = ctx.context
+    c.finish_title = (title or "").strip()[:MAX_TITLE] or "Untitled"
+    c.finish_note = (note or "").strip()[:MAX_NOTE]
+    return "Finished."
+
+
+def tools_for(vision: bool) -> list:
+    """With vision off, the look tool doesn't exist at all for the agent."""
+    return [paint, look, finish] if vision else [paint, finish]

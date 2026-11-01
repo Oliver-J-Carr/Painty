@@ -1,0 +1,15 @@
+services:
+  painty:
+    build: .
+    image: painty:0.1.0
+    container_name: painty
+    env_file: .env
+    ports:
+      - "8091:8091"
+    volumes:
+      # The gallery and saved settings live here, so they survive rebuilds.
+      - painty-data:/srv/data
+    restart: unless-stopped
+
+volumes:
+  painty-data:

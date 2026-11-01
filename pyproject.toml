@@ -1,0 +1,9 @@
+[project]
+name = "painty"
+version = "0.1.0"
+description = "An agent learns to paint with a shape tool it has never seen (OpenAI Agents SDK + FastAPI)"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
