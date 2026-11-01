@@ -8,8 +8,9 @@ events the browser would receive.
 import asyncio
 import json
 
-from agents import set_tracing_disabled
+from agents import Usage, set_tracing_disabled
 from agents.testing import ScriptedModel, assistant_message, function_call
+from openai.types.responses.response_usage import InputTokensDetails, OutputTokensDetails
 
 from app.gallery import Gallery
 from app.settings_store import SettingsStore
@@ -38,7 +39,8 @@ def finish(cid, title="Test", note="A test painting."):
     return function_call("finish", {"title": title, "note": note}, call_id=cid)
 
 
-def make_studio(tmp_path, steps, **settings):
+def make_studio(tmp_path, steps, usage=None, **settings):
+    """usage: the Usage every scripted model call reports (None = all zeros)."""
     events = []
 
     async def send(event):
@@ -46,7 +48,7 @@ def make_studio(tmp_path, steps, **settings):
 
     store = SettingsStore(tmp_path / "settings.json", ("fake-model",))
     store.update(settings)
-    model = ScriptedModel(steps)
+    model = ScriptedModel(steps, default_usage=usage)
     studio = Studio(send, store, Gallery(tmp_path / "gallery"), model=model)
     return studio, model, events
 
@@ -97,6 +99,28 @@ def test_paint_look_finish_saves_to_gallery(tmp_path):
     assert meta["shapes_used"] == 2 and meta["looks_used"] == 1 and meta["ending"] == "finished"
     assert (folder / "painting.png").exists() and (folder / "looks" / "look-1.png").exists()
     assert len(json.loads((folder / "shapes.json").read_text())) == 2
+
+
+def test_cached_and_reasoning_tokens_are_counted_and_saved(tmp_path):
+    per_call = Usage(requests=1, input_tokens=1000, output_tokens=200, total_tokens=1200,
+                     input_tokens_details=InputTokensDetails(cached_tokens=600, cache_write_tokens=0),
+                     output_tokens_details=OutputTokensDetails(reasoning_tokens=150))
+    steps = [
+        [paint([rect(0, 0, 512, 512)], "c1")],
+        [finish("c2")],
+    ]
+    studio, _, events = make_studio(tmp_path, steps, usage=per_call)
+
+    async def go():
+        await studio.start("a blue square")
+        await _wait(studio)
+    run(go)
+
+    final = types(events, "status")[-1]
+    assert final["tokens"] == {"input": 2000, "cached": 1200, "output": 400, "reasoning": 300}
+    meta = json.loads((tmp_path / "gallery" / final["saved_id"] / "meta.json").read_text())
+    assert (meta["input_tokens"], meta["cached_tokens"]) == (2000, 1200)
+    assert (meta["output_tokens"], meta["reasoning_tokens"]) == (400, 300)
 
 
 def test_invalid_batch_paints_nothing_and_costs_nothing(tmp_path):

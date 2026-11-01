@@ -154,6 +154,14 @@ function clearFeed() {
 // ------------------------------------------------------------------ states
 function show(id, on) { $(id).hidden = !on; }
 
+// "12,345 in (82% cached), 3,456 out (2,100 reasoning)". Older gallery
+// paintings have no cached or reasoning counts, so those parts are left out.
+function tokenText({ input = 0, cached, output = 0, reasoning }) {
+  const share = cached !== undefined && input ? ` (${Math.round((cached / input) * 100)}% cached)` : "";
+  const thinking = reasoning ? ` (${reasoning.toLocaleString()} reasoning)` : "";
+  return `${input.toLocaleString()} in${share}, ${output.toLocaleString()} out${thinking}`;
+}
+
 function applyState(e) {
   state = e.state;
   const painting = state === "painting";
@@ -179,8 +187,7 @@ function applyState(e) {
     $("finished-title").textContent = e.title || "Untitled";
     $("finished-note").textContent = e.note || "";
     const t = e.tokens || {};
-    const tokens = t.input || t.output
-      ? `${t.input.toLocaleString()} input and ${t.output.toLocaleString()} output tokens. ` : "";
+    const tokens = t.input || t.output ? `Tokens: ${tokenText(t)}. ` : "";
     $("finished-meta").textContent = `${shapesOnCanvas} shapes. ${tokens}${savedId ? "Saved to the gallery." : "Not saved."}`;
     $("view-saved").hidden = !savedId;
   }
@@ -397,7 +404,8 @@ function showDetail(m) {
     ["Shapes", `${m.shapes_used} of ${m.shapes_budget}`],
     ["Looks", `${m.looks_used} of ${m.looks_budget}`],
     ["Top-ups", String(m.top_ups)],
-    ["Tokens", `${(m.input_tokens || 0).toLocaleString()} in, ${(m.output_tokens || 0).toLocaleString()} out`],
+    ["Tokens", tokenText({ input: m.input_tokens, cached: m.cached_tokens,
+                           output: m.output_tokens, reasoning: m.reasoning_tokens })],
     ["Time", m.duration_s ? `${Math.round(m.duration_s)} s` : "?"],
     ["Ending", endings[m.ending] || m.ending],
     ["Painted", new Date(m.created_at * 1000).toLocaleString("en-GB")],

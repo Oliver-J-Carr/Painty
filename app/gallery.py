@@ -40,7 +40,9 @@ class SaveRequest:
     looks: list[bytes] = field(default_factory=list)
     top_ups: int = 0
     input_tokens: int = 0
+    cached_tokens: int = 0      # part of input_tokens, served from the prompt cache
     output_tokens: int = 0
+    reasoning_tokens: int = 0   # part of output_tokens
     started_at: float = 0.0
 
 
@@ -88,7 +90,9 @@ class Gallery:
             "looks_budget": req.looks_budget,
             "top_ups": req.top_ups,
             "input_tokens": req.input_tokens,
+            "cached_tokens": req.cached_tokens,
             "output_tokens": req.output_tokens,
+            "reasoning_tokens": req.reasoning_tokens,
             "version": version,
         }
         (folder / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")

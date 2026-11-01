@@ -62,7 +62,9 @@ class Studio:
         self.drawing_id = ""
         self.saved_id: str | None = None
         self.input_tokens = 0
+        self.cached_tokens = 0     # the part of input_tokens served from the prompt cache
         self.output_tokens = 0
+        self.reasoning_tokens = 0  # the part of output_tokens spent on reasoning
         self.task: asyncio.Task | None = None
         self.hooks = ActivityHooks()
 
@@ -100,7 +102,7 @@ class Studio:
         self.agent = build_painter_agent(s, self.model)
         self.history = None
         self.saved_id = None
-        self.input_tokens = self.output_tokens = 0
+        self.input_tokens = self.cached_tokens = self.output_tokens = self.reasoning_tokens = 0
         self.drawing_id = f"painty_{uuid.uuid4().hex[:12]}"
 
         await self._emit({"type": "canvas_reset", "prompt": prompt,
@@ -205,7 +207,8 @@ class Studio:
             canvas=c.canvas, prompt=c.prompt, title=title, note=note, ending=ending,
             settings=settings_dict(c.settings), shapes_budget=c.budget.shapes_total,
             looks_budget=c.budget.looks_total, looks=list(c.looks), top_ups=c.budget.top_ups,
-            input_tokens=self.input_tokens, output_tokens=self.output_tokens,
+            input_tokens=self.input_tokens, cached_tokens=self.cached_tokens,
+            output_tokens=self.output_tokens, reasoning_tokens=self.reasoning_tokens,
             started_at=c.started_at,
         )
         meta = None
@@ -221,11 +224,17 @@ class Studio:
         self.history = None
         await self._set_state("finished", title=title or "Untitled", note=note, ending=ending,
                               saved_id=self.saved_id, meta=meta,
-                              tokens={"input": self.input_tokens, "output": self.output_tokens})
+                              tokens={"input": self.input_tokens, "cached": self.cached_tokens,
+                                      "output": self.output_tokens,
+                                      "reasoning": self.reasoning_tokens})
 
     def _count_tokens(self, usage) -> None:
         self.input_tokens += getattr(usage, "input_tokens", 0) or 0
         self.output_tokens += getattr(usage, "output_tokens", 0) or 0
+        details = getattr(usage, "input_tokens_details", None)
+        self.cached_tokens += getattr(details, "cached_tokens", 0) or 0
+        details = getattr(usage, "output_tokens_details", None)
+        self.reasoning_tokens += getattr(details, "reasoning_tokens", 0) or 0
 
     @staticmethod
     async def _quietly(coro) -> None:

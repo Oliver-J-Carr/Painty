@@ -182,7 +182,7 @@ Each painting is a folder under `DATA_DIR/gallery` (in the container, the `paint
 - `painting.svg`: the same painting as SVG
 - `shapes.json`: every shape in paint order
 - `looks/look-N.png`: exactly what the agent saw, ruler and grid included
-- `meta.json`: prompt, title, note, ending, settings, budgets used, top-ups, tokens, time, version
+- `meta.json`: prompt, title, note, ending, settings, budgets used, top-ups, tokens (input with the cached share, output with the reasoning share), time, version
 
 Endings: `finished` (the agent called finish), `ended` (it stopped without calling finish, so its last words become the note) and `saved` (you saved it by hand).
 
