@@ -5,8 +5,9 @@ look   shows the agent a picture of the canvas (only when vision is on)
 finish ends the drawing with a title and a short artist's note
 
 Errors are returned as "Error: ..." text, not raised, so the model can read
-them and try again. A batch with any invalid shape paints nothing at all, so
-the layering the agent planned is never left half done.
+them and try again. A batch is painted only up to its first invalid shape, so
+the layering the agent planned is never left with a gap in it: the agent sends
+the rest again, fixed, and it lands in the planned order.
 
 Docstrings matter: the SDK sends them to the model as tool descriptions.
 """
@@ -15,7 +16,7 @@ from __future__ import annotations
 
 from agents import RunContextWrapper, ToolOutputImage, ToolOutputText, function_tool
 
-from .canvas import Shape
+from .canvas import check_batch, split_batch
 from .context import PaintyContext
 from .view import GRID_STEP, agent_view_png, data_url
 
@@ -34,43 +35,50 @@ def budget_left(c: PaintyContext) -> str:
 
 
 @function_tool
-async def paint(ctx: Ctx, shapes: list[Shape], note: str) -> str:
+async def paint(ctx: Ctx, shapes: list[str], note: str) -> str:
     """Paint a batch of shapes onto the canvas, in the order given.
+
+    Each shape is one string: kind x1 y1 x2 y2 fill, then any extras, such as
+    "ellipse 196 180 316 300 #f2c9a0 outline=#5a3a1a thickness=3". Your
+    instructions explain the fills and extras.
 
     Paint is permanent. Each shape is laid on top of everything painted before it,
     so where shapes overlap the later one covers the earlier one (partly, if its
     opacity is below 1). Nothing can be erased: fix a mistake by painting over it.
     Plan each batch back to front: the first shape in the list goes underneath.
 
-    If any shape in the batch is invalid, nothing is painted and you get a list of
-    the problems. Fix them and send the whole batch again. Invalid batches cost no budget.
+    If a shape has a problem, the shapes before it are painted, but it and every
+    shape after it are not, so your layers stay in the order you planned. You get
+    a list of every problem. Fix them and send the unpainted shapes again, in the
+    same order. Unpainted shapes cost no budget.
 
     Args:
-        shapes: The shapes to paint, bottom layer first.
+        shapes: The shapes to paint, one string each, bottom layer first.
         note: A few words on what this batch adds, e.g. "sky and sea" or "shading under the chin".
     """
     c = ctx.context
     b = c.budget
     limit = c.settings.max_shapes_per_call
-    if not shapes:
+    texts = split_batch(shapes)
+    if not texts:
         return "Error: the batch is empty. Send at least one shape."
-    if len(shapes) > limit:
+    if len(texts) > limit:
         return (f"Error: nothing was painted. A batch can hold at most {limit} shapes and this one "
-                f"has {len(shapes)}. Split it into smaller batches, in the same order.")
-    if len(shapes) > b.shapes_left:
+                f"has {len(texts)}. Split it into smaller batches, in the same order.")
+    if len(texts) > b.shapes_left:
         return (f"Error: nothing was painted. Only {b.shapes_left} shapes are left in your budget "
-                f"and this batch has {len(shapes)}. Choose the most important ones.")
+                f"and this batch has {len(texts)}. Choose the most important ones.")
 
-    errors, notes = c.canvas.check(shapes)
-    if errors:
-        listed = "\n".join(f"- {e}" for e in errors)
+    good, errors, notes = check_batch(texts)
+    listed = "\n".join(f"- {e}" for e in errors)
+    if not good:
         return ("Error: nothing was painted, because of these problems "
                 "(shape numbers count from 1 within this batch):\n"
-                f"{listed}\nFix them and send the whole batch again.")
+                f"{listed}\nFix them and send the batch again.")
 
     async with c.paint_lock:
         first = len(c.canvas) + 1
-        painted = c.canvas.add(shapes)
+        painted = c.canvas.add([s for _, s in good], [t for t, _ in good])
         b.shapes_used += len(painted)
         await c.emit({"type": "shapes", "key": ctx.tool_call_id,
                       "shapes": [{"n": p.n, "svg": p.svg} for p in painted]})
@@ -78,7 +86,14 @@ async def paint(ctx: Ctx, shapes: list[Shape], note: str) -> str:
 
     last = first + len(painted) - 1
     span = f"shape {first}" if first == last else f"shapes {first} to {last}"
-    result = f"Painted {len(painted)} ({span} on the canvas). {budget_left(c)}"
+    if errors:
+        stop = len(painted) + 1
+        result = (f"Painted only the first {len(painted)} of this batch ({span} on the canvas). "
+                  f"Shape {stop} onwards was not painted, because of these problems "
+                  f"(shape numbers count from 1 within this batch):\n{listed}\n"
+                  f"Send shape {stop} onwards again, fixed, in the same order. {budget_left(c)}")
+    else:
+        result = f"Painted {len(painted)} ({span} on the canvas). {budget_left(c)}"
     if notes:
         result += "\nNotes: " + "; ".join(notes) + "."
     if b.shapes_left == 0:

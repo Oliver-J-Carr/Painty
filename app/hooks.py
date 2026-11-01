@@ -13,6 +13,7 @@ from typing import Any
 
 from agents import Agent, RunContextWrapper, RunHooks
 
+from .canvas import kind_of, split_batch
 from .context import PaintyContext
 
 _ICONS = {"paint": "🖌️", "look": "👀", "finish": "🏁"}
@@ -26,10 +27,16 @@ def _args(context: RunContextWrapper) -> dict[str, Any]:
         return {"raw": raw}
 
 
+def _shapes(a: dict[str, Any]) -> list[str]:
+    """The paint call's shapes, one string each, split as the paint tool splits them."""
+    shapes = a.get("shapes") or []
+    return split_batch([s for s in shapes if isinstance(s, str)])
+
+
 def _describe(tool_name: str, a: dict[str, Any]) -> str:
     match tool_name:
         case "paint":
-            shapes = a.get("shapes") or []
+            shapes = _shapes(a)
             note = (a.get("note") or "").strip()
             count = f"{len(shapes)} shape{'s' if len(shapes) != 1 else ''}"
             return f"Painting {count}" + (f": {note}" if note else "")
@@ -44,8 +51,8 @@ def _describe(tool_name: str, a: dict[str, Any]) -> str:
 def _kinds(a: dict[str, Any]) -> str:
     """'3 ellipses, 1 triangle' for the paint entry's detail line."""
     counts: dict[str, int] = {}
-    for s in a.get("shapes") or []:
-        kind = s.get("kind", "?") if isinstance(s, dict) else "?"
+    for s in _shapes(a):
+        kind = kind_of(s)
         counts[kind] = counts.get(kind, 0) + 1
     return ", ".join(f"{n} {k}{'s' if n != 1 else ''}" for k, n in counts.items())
 

@@ -5,7 +5,8 @@ import io
 import pytest
 from PIL import Image
 
-from app.canvas import Canvas, Shape, check_shape, normalise_hex, shape_svg
+from app.canvas import (Canvas, Shape, check_batch, check_shape, kind_of, normalise_hex,
+                        parse_shape, shape_svg, split_batch)
 from app.settings_store import SettingsStore, StudioSettings, clean
 from app.view import FRAME, agent_view_png, render_png
 
@@ -82,7 +83,90 @@ def test_check_rejects_bad_values_and_notes_harmless_ones():
 
     errors, notes = check_shape(make(colours=["#fff", "#000"], thickness=3))
     assert errors == []
-    assert any("first colour" in n for n in notes) and any("no outline_color" in n for n in notes)
+    assert any("first colour" in n for n in notes) and any("without an outline colour" in n for n in notes)
+
+
+# ------------------------------------------------------------ shape notation
+def parse(text) -> Shape:
+    shape, errors, _ = parse_shape(text)
+    assert errors == [], errors
+    return shape
+
+
+def test_notation_reads_every_part_of_a_shape():
+    s = parse("rectangle 0 10 512 340.5 linear #4a90d9 #cfe8ff #ffffff 180 opacity=0.6 rotation=-20 "
+              "outline=#222 thickness=3")
+    assert s.kind == "rectangle" and (s.start.x, s.start.y, s.end.x, s.end.y) == (0, 10, 512, 340.5)
+    assert s.fill.style == "linear" and s.fill.colors == ["#4a90d9", "#cfe8ff", "#ffffff"]
+    assert s.fill.angle == 180
+    assert (s.opacity, s.rotation, s.outline_color, s.thickness) == (0.6, -20, "#222", 3)
+
+
+def test_notation_defaults():
+    s = parse("ellipse 10 10 50 50 #ff0000")
+    assert (s.fill.style, s.opacity, s.rotation, s.thickness, s.outline_color) == ("solid", 1, 0, 0, None)
+    assert parse("ellipse 10 10 50 50 #ff0000 outline=#000").thickness == 2
+    assert parse("line 10 10 50 50 #000").thickness == 3
+    r = parse("triangle 10 10 50 50 radial #fff #000")
+    assert r.fill.style == "radial" and r.fill.colors == ["#fff", "#000"]
+
+
+def test_notation_paints_the_same_as_the_shape_it_describes():
+    assert shape_svg(1, parse("rectangle 10 10 110 60 #ff0000")) == shape_svg(1, make())
+    canvas = Canvas()
+    canvas.add([parse("ellipse 100 100 300 300 #ffffff outline=#000000 thickness=10")])
+    svg = canvas.to_svg()
+    assert pixel(svg, 200, 102) == (0, 0, 0)          # the outline, on the top edge
+    assert pixel(svg, 200, 200) == (255, 255, 255)    # the white fill inside
+
+
+def test_notation_forgives_small_slips():
+    s = parse("RECT 10, 10, 110, 60 #F00 opacity = 0.5")
+    assert s.kind == "rectangle" and (s.end.x, s.end.y) == (110, 60) and s.opacity == 0.5
+    assert normalise_hex(s.fill.colors[0]) == "#ff0000"
+
+
+@pytest.mark.parametrize("text, message", [
+    ("ellips 0 0 10 10 #fff", "unknown kind 'ellips'"),
+    ("ellipse 0 0 10 #fff", "four numbers"),
+    ("ellipse 0 0 10 10", "followed by the fill"),
+    ("ellipse 0 0 10 10 opacity=0.5", "followed by the fill"),
+    ("rectangle 0 0 10 10 linear #fff #000", "needs its angle"),
+    ("rectangle 0 0 10 10 #fff wobble=2", "unknown extra 'wobble'"),
+    ("rectangle 0 0 10 10 #fff 0.5", "unexpected '0.5'"),
+    ("rectangle 0 0 10 10 #fff opacity=half", "opacity=half is not a number"),
+])
+def test_notation_rejects_what_it_cannot_read(text, message):
+    shape, errors, _ = parse_shape(text)
+    assert shape is None and any(message in e for e in errors), errors
+
+
+def test_notation_notes_harmless_oddities():
+    _, _, notes = parse_shape("ellipse 0 0 10 10 radial #fff #000 90")
+    assert any("radial fills have no angle" in n for n in notes)
+    shape, _, notes = parse_shape("line 0 0 10 10 #000 outline=#fff")
+    assert shape.outline_color is None and any("outline is ignored" in n for n in notes)
+
+
+def test_batch_is_painted_up_to_the_first_bad_shape():
+    texts = ["rectangle 0 0 10 10 #fff", "rectangle 0 0 10 10 red",
+             "rectangle 0 0 10 10 #fff", "ellipse 0 0 1 1 #fff",
+             "rectangle 0 0 10 10 #fff #000"]
+    good, errors, notes = check_batch(texts)
+    assert [t for t, _ in good] == texts[:1]
+    assert len(errors) == 2       # every problem is listed, not just the first
+    assert errors[0].startswith('shape 2 "rectangle 0 0 10 10 red": ')
+    assert errors[1].startswith("shape 4 ") and "at least" in errors[1]
+    assert notes == []            # notes only cover shapes that get painted
+
+    good, errors, notes = check_batch(texts[4:])
+    assert len(good) == 1 and errors == [] and "first colour" in notes[0]
+
+
+def test_crammed_shapes_are_split_and_kinds_read():
+    assert split_batch(["rect 0 0 9 9 #fff\nline 0 0 9 9 #000; ", "  ", "ellipse 1 1 9 9 #fff"]) == [
+        "rect 0 0 9 9 #fff", "line 0 0 9 9 #000", "ellipse 1 1 9 9 #fff"]
+    assert kind_of("RECT 0 0 9 9 #fff") == "rectangle" and kind_of("") == "?"
 
 
 def test_hex_colours_are_normalised():

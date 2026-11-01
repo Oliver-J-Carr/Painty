@@ -63,7 +63,7 @@ docker image prune
 - `app/studio.py`: the drawing lifecycle (start, pause, keep going, stop, save) and the traced agent runs. Runs in a background task so `stop` can cancel it.
 - `app/painter.py`: the painter agent, its dynamic instructions and `_stop_when_done` (the `tool_use_behavior` that ends a run on `finish` or an empty shape budget).
 - `app/tools.py`: the three function tools: `paint`, `look`, `finish`.
-- `app/canvas.py`: the shape models (also the tool schema), validation and SVG rendering. No AI here.
+- `app/canvas.py`: the shape models (internal only), the shape notation parser, validation and SVG rendering. No AI here.
 - `app/view.py`: SVG to PNG (resvg), and the agent's view with its ruler frame and grid (Pillow).
 - `app/gallery.py`: saves finished paintings as plain files under `DATA_DIR/gallery`.
 - `app/settings_store.py`: the settings panel's values, clamped and saved to `DATA_DIR/settings.json`.
@@ -74,14 +74,15 @@ docker image prune
 
 ## Key design decisions (keep these)
 
-- **A custom paint system, not SVG or CSS.** The whole point is to test adaptation to something unfamiliar. Never give the agent raw SVG, CSS or HTML to write. New abilities are added as structured fields on `Shape` or `Fill`.
-- **Shapes are defined by a drag box.** `start` and `end` are opposite corners, in any order (the box is normalised). Lines keep their direction.
+- **A custom paint system, not SVG or CSS.** The whole point is to test adaptation to something unfamiliar. Never give the agent raw SVG, CSS or HTML to write. New abilities are added as fields on `Shape` or `Fill` and an optional `name=value` extra (with a default) in the shape notation.
+- **Shapes are written in a one-line notation, not JSON.** `kind x1 y1 x2 y2 fill [name=value extras]`, read by `canvas.parse_shape` into the internal `Shape`. It saves output tokens. Fixed positions only for what every shape has; everything optional is a named extra. Be forgiving about slips (case, commas), never about meaning.
+- **Shapes are defined by a drag box.** (x1, y1) and (x2, y2) are opposite corners, in any order (the box is normalised). Lines keep their direction.
 - **Rotation is compass-style and shared.** Clockwise degrees around the box centre; a triangle at 0° points up. The same field works for rectangles and ellipses. Linear gradient `angle` uses the same compass convention and turns with the shape.
 - **(0, 0) is the top-left, y grows downwards.** Matches SVG, PNG pixels and the agent's snapshot. Don't flip it without changing the prompt, the ruler and the tests together.
 - **Paint is permanent.** Shapes are only ever added. No undo, erase, clear or move tools. Mistakes are fixed by painting over.
 - **One renderer.** Each shape becomes one self-contained SVG fragment (`canvas.shape_svg`). The browser shows those fragments; the backend joins the same fragments and rasterises them for looks and the gallery. Never re-implement shape drawing in JavaScript.
 - **Batches, one tool call per turn.** `paint` takes an ordered list, and `parallel_tool_calls=False`, so layering is always in the order the agent planned. `paint_lock` is a backstop.
-- **All-or-nothing batches.** If any shape in a batch is invalid, nothing is painted and the batch costs no budget. The error lists every problem, numbered within the batch.
+- **Batches are painted up to the first bad shape.** The shapes before it are painted; it and everything after it are not, and cost no budget, so a resend lands in the planned order. The result lists every problem in the batch, numbered within the batch. Never paint shapes after a bad one: that breaks the layering.
 - **The same model sees its own work.** `look` returns the PNG to the painter itself via `ToolOutputImage`. Don't route images through a separate describing model (the book's Ch 7 critic pattern): that's what this project avoids.
 - **The grid is only in the agent's view.** `view.agent_view_png` adds a numbered ruler frame and faint grid lines every 64 px. The painting, the browser canvas and the gallery PNG never have them.
 - **Vision is a toggle, for comparison.** With vision off, the `look` tool is not registered at all and the prompt says it is painting blind.
@@ -95,7 +96,7 @@ docker image prune
 
 ## Conventions
 
-- Tool docstrings and `Field(description=...)` text on the shape models are sent to the model. Treat vague wording as a bug.
+- Tool docstrings, `app/prompts/*.md` and the problem messages from `parse_shape` and `check_shape` are read by the model. Treat vague wording as a bug. The `Shape` model's field descriptions are internal only.
 - Tools return errors as `"Error: ..."` strings instead of raising, so the model can recover.
 - Every successful state-changing tool must change the context (canvas or budget), emit its event (`shapes` or `look`) and call `send_budget()`.
 - Tool results are plain English and always end with what is left in the budget.
@@ -105,10 +106,10 @@ docker image prune
 
 ## Adding a shape kind or paint option
 
-1. `canvas.py`: add the field or `kind` value with a precise description, its checks in `check_shape`, and its rendering in `shape_svg`.
-2. `prompts/painter.md`: explain how it works and when it helps.
+1. `canvas.py`: add the field or `kind` value, how `parse_shape` reads it (a new extra goes in `EXTRAS`, with a default), its checks in `check_shape`, and its rendering in `shape_svg`.
+2. `prompts/painter.md`: explain how to write it, when it helps and its default.
 3. `hooks.py`: only if the feed should describe it differently.
-4. `tests/test_canvas.py`: a rendering test that checks real pixels, plus a validation test.
+4. `tests/test_canvas.py`: a rendering test that checks real pixels, a notation test, and a validation test.
 5. `docs/PDD.md`: record the decision.
 
 ## WebSocket protocol

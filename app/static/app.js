@@ -415,7 +415,10 @@ function showDetail(m) {
   right.appendChild(dl);
 
   const files = el("p", "files");
-  for (const [label, file] of [["PNG", "painting.png"], ["SVG", "painting.svg"], ["Shapes", "shapes.json"], ["Details", "meta.json"]]) {
+  const fileLinks = [["PNG", "painting.png"], ["SVG", "painting.svg"],
+    ...(m.shape_format === "notation" ? [["Shapes", "shapes.txt"]] : []),
+    ["Shapes (JSON)", "shapes.json"], ["Details", "meta.json"]];
+  for (const [label, file] of fileLinks) {
     const a = el("a", "", label);
     a.href = `${base}/${file}`;
     a.target = "_blank";

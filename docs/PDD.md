@@ -45,8 +45,8 @@ Out of scope for now (see section 12): follow-up prompts on the same canvas, raw
 
 Four kinds: `line`, `rectangle`, `ellipse`, `triangle`.
 
-- **Drag box.** Like Microsoft Paint: `start` and `end` are opposite corners of a box and the shape fills it. Any pair of opposite corners works in any order (top-left to bottom-right, bottom-left to top-right and so on); the box is normalised. Using "start and end" rather than "top-left and bottom-right" keeps that freedom.
-- **Lines** go from `start` to `end` and keep their direction. They have round ends.
+- **Drag box.** Like Microsoft Paint: (x1, y1) and (x2, y2) are opposite corners of a box and the shape fills it. Any pair of opposite corners works in any order (top-left to bottom-right, bottom-left to top-right and so on); the box is normalised. Using "a start and an end" rather than "top-left and bottom-right" keeps that freedom.
+- **Lines** go from (x1, y1) to (x2, y2) and keep their direction. They have round ends.
 - **Circles and squares** are an ellipse or rectangle in a square box.
 
 ### 4.2 Triangle and rotation
@@ -65,11 +65,11 @@ Options considered: a box plus one of four directions (Paint-like, but limited),
 
 Raw CSS or SVG styling was considered and **rejected**. It would hand the familiar system back (the model would reach for memorised tricks such as clip-path and box-shadow), defeating the test, and it could break out of the canvas. Instead the agent gets "a paint set, not the paint factory": a small structured vocabulary.
 
-- `fill.style`: `solid` (one colour), `linear` (2–3 colours blending in a direction) or `radial` (2–3 colours from the centre out to the edge).
-- `fill.colors`: hex colours (`#rgb` or `#rrggbb`). Full freedom of colour was a requirement.
-- `fill.angle`: for linear blends, the same compass convention as rotation (0 = bottom to top, 90 = left to right). The blend turns with the shape.
+- Fill: one colour (solid), `linear` (2–3 colours blending in a direction) or `radial` (2–3 colours from the centre out to the edge).
+- Colours: hex (`#rgb` or `#rrggbb`). Full freedom of colour was a requirement.
+- Linear angle: the same compass convention as rotation (0 = bottom to top, 90 = left to right). The blend turns with the shape.
 - `opacity`: 0.05 to 1. Below 1, the paint beneath shows through. This is what makes shading, shadows, highlights and glazes possible, which matters for refining detail.
-- `thickness` and `outline_color`: line thickness for lines (1–100 px); optional outline for other shapes (0–40 px, 0 = none).
+- `thickness` and `outline`: line thickness for lines (1–100 px, default 3); optional outline for other shapes (0–40 px, default 2 when an outline colour is given).
 
 ### 4.4 Layering
 
@@ -81,16 +81,36 @@ There is no undo, erase, clear or move. Paint is paint: the agent can only paint
 
 ### 4.6 Validation
 
-- Every problem in a batch is reported, each named by its number within the batch ("shape 3 (ellipse): 'red' is not a hex colour like #ff8800").
-- **All or nothing:** if any shape in a batch is invalid, nothing is painted and the batch costs no budget. A half-painted batch would break the layering the agent planned.
+- Every problem in a batch is reported, each named by its number within the batch and quoting what the agent wrote (`shape 3 "ellipse 0 0 40 40 red": 'red' is not a hex colour like #ff8800`).
+- **Painted up to the first bad shape:** the shapes before the first invalid one are painted; it and everything after it are not, and cost no budget. The agent sends the rest again, fixed, and it lands in the planned order. Painting each valid shape on its own was rejected: if the face is skipped but the eyes are painted, resending the face covers the eyes. This replaced all-or-nothing batches, which threw away good shapes and made the agent resend the whole batch.
+- Whole-batch problems (empty, over the per-call limit, more shapes than the budget has left) still paint nothing.
 - Harmless oddities are painted anyway with a note (for example, extra colours on a solid fill).
 - Rules: coordinates in range; at least 2 × 2 px for filled shapes; lines need length (use a small ellipse for a dot); valid hex colours; opacity 0.05–1; thickness limits as above.
+
+### 4.7 The shape notation
+
+The agent writes each shape as one short line of text rather than a JSON object:
+
+```
+kind x1 y1 x2 y2 fill [name=value extras]
+rectangle 0 0 512 340 linear #4a90d9 #cfe8ff 180
+ellipse 196 180 316 300 #f2c9a0 outline=#5a3a1a thickness=3
+```
+
+- **Why:** output tokens are the expensive kind, and JSON spends most of them on braces, quotes and field names. A typical shape is roughly a third of the tokens, and past paint calls in the history shrink by the same factor.
+- **Fixed positions only for what every shape has** (kind, box, fill). The rarely used options are optional `name=value` tags with defaults, so most shapes have none, and there's no long run of positional numbers to miscount.
+- **Tags use the full field names** (`opacity=`, not `o=`): they're rare, so letters would save little, and full names explain themselves.
+- **Colours keep the `#`.** It costs almost nothing and means a colour can never be mistaken for a number.
+- **Forgiving about small slips:** letter case, commas, spaces round `=`, `rect`, and several shapes crammed into one string. Never about meaning: no named colours, no missing `#`, no unknown tags.
+- It is still Painty's own system, not SVG: no tags, no attributes, no path commands.
+- Risk: strict JSON schemas guaranteed well-formed shapes; now only the parser and the prompt do. If some models do badly, a JSON mode could come back as a setting for comparison.
+- The parser builds the same internal `Shape`, so validation, rendering and the gallery were unchanged. `shapes.json` keeps each shape's original `text`, so format mistakes can be studied.
 
 ## 5. Tools
 
 | Tool | Arguments | What it does |
 |---|---|---|
-| `paint` | `shapes` (ordered list, bottom layer first), `note` | Validates and paints a batch. Returns what was painted and what's left in the budget |
+| `paint` | `shapes` (ordered list of shape notation strings, bottom layer first), `note` | Validates and paints a batch, up to any bad shape. Returns what was painted, any problems and what's left in the budget |
 | `look` | `focus` (what it wants to check) | Returns a PNG of the canvas to the same model. Vision on only |
 | `finish` | `title`, `note` | Ends the drawing. The painting is saved to the gallery |
 
@@ -172,7 +192,7 @@ idle --paint--> painting --finish--------> finished (saved)
 - **Activity feed** (permanent right column): every batch with its note and shape counts, every look with a thumbnail of exactly what the agent saw (click to enlarge), errors, and the finish.
 - **Paused card** with Keep going and Finish here. **Finished card** with title, note, shape and token counts, and a link to the gallery.
 - **Settings drawer** for model, reasoning effort, vision and budgets.
-- **Gallery** with each painting's prompt, settings, budgets used, top-ups, tokens, time, the looks it took, and links to the PNG, SVG and shape log.
+- **Gallery** with each painting's prompt, settings, budgets used, top-ups, tokens, time, the looks it took, and links to the PNG, SVG and shape log (as the agent wrote it, and as JSON).
 - Type: Pixelify Sans for the brand (a nod to Matey), Recursive for everything else, with its casual style reserved for Painty's own words (notes and titles).
 
 ## 10. Gallery
@@ -181,9 +201,10 @@ Each painting is a folder under `DATA_DIR/gallery` (in the container, the `paint
 
 - `painting.png`: clean, at 1024 px, for sharing
 - `painting.svg`: the same painting as SVG
-- `shapes.json`: every shape in paint order
+- `shapes.txt`: every shape in paint order, one line each, exactly as the agent wrote it ("Shapes" in the gallery)
+- `shapes.json`: every shape in paint order as parsed data, with its original `text` ("Shapes (JSON)")
 - `looks/look-N.png`: exactly what the agent saw, ruler and grid included
-- `meta.json`: prompt, title, note, ending, settings, budgets used, top-ups, tokens (input with the cached share, output with the reasoning share), time, version
+- `meta.json`: prompt, title, note, ending, settings, budgets used, top-ups, `shape_format` (`notation`; missing on paintings from before it, which have no `shapes.txt`), tokens (input with the cached share, output with the reasoning share), time, version
 
 Endings: `finished` (the agent called finish), `ended` (it stopped without calling finish, so its last words become the note) and `saved` (you saved it by hand).
 
@@ -235,3 +256,4 @@ Endings: `finished` (the agent called finish), `ended` (it stopped without calli
 | 1 Nov 2026 | Record cached and reasoning tokens per drawing |
 | 1 Nov 2026 | Instructions fixed within a run (no live status line) and drawing id as `prompt_cache_key`, so the prompt cache works |
 | 1 Nov 2026 | No final look before finishing: the prompt says to finish straight after the final touches. A look at that point rarely led to a correction, and each look sends an image |
+| 1 Nov 2026 | Shapes written as one-line text notation instead of JSON; batches painted up to the first bad shape instead of all or nothing |

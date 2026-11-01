@@ -80,7 +80,7 @@ See `.env.example` for defaults.
 
 The design and the reasons behind it are in [`docs/PDD.md`](docs/PDD.md). In short:
 
-- The agent has three tools: `paint` (an ordered batch of shapes), `look` (a PNG of the canvas, if vision is on) and `finish` (a title and a note).
+- The agent has three tools: `paint` (an ordered batch of shapes, each written as one short line such as `ellipse 196 180 316 300 #f2c9a0`), `look` (a PNG of the canvas, if vision is on) and `finish` (a title and a note).
 - Every shape becomes one SVG fragment. Your browser shows those fragments, and the server rasterises the very same SVG for the agent's eyes and the gallery, so what you see is exactly what the agent sees.
 - Budgets are enforced in code. When shapes run out, the run ends cleanly with its history kept, so "Keep going" can resume the same conversation.
 

@@ -19,12 +19,8 @@ from app.studio import Studio
 set_tracing_disabled(True)
 
 
-def rect(x0, y0, x1, y1, colour="#336699", **extra):
-    shape = {"kind": "rectangle", "start": {"x": x0, "y": y0}, "end": {"x": x1, "y": y1},
-             "fill": {"style": "solid", "colors": [colour], "angle": 0},
-             "opacity": 1, "rotation": 0, "thickness": 0, "outline_color": None}
-    shape.update(extra)
-    return shape
+def rect(x0, y0, x1, y1, colour="#336699"):
+    return f"rectangle {x0} {y0} {x1} {y1} {colour}"
 
 
 def paint(shapes, cid, note="test"):
@@ -98,7 +94,12 @@ def test_paint_look_finish_saves_to_gallery(tmp_path):
     meta = json.loads((folder / "meta.json").read_text())
     assert meta["shapes_used"] == 2 and meta["looks_used"] == 1 and meta["ending"] == "finished"
     assert (folder / "painting.png").exists() and (folder / "looks" / "look-1.png").exists()
-    assert len(json.loads((folder / "shapes.json").read_text())) == 2
+    assert (folder / "shapes.txt").read_text() == (
+        f"{rect(0, 0, 512, 512, '#87ceeb')}\n{rect(100, 100, 200, 200, '#ff0000')}\n")
+    assert meta["shape_format"] == "notation"
+    log = json.loads((folder / "shapes.json").read_text())
+    assert [s["text"] for s in log] == [rect(0, 0, 512, 512, "#87ceeb"), rect(100, 100, 200, 200, "#ff0000")]
+    assert log[1]["kind"] == "rectangle" and log[1]["fill"]["colors"] == ["#ff0000"]
 
 
 def test_cached_and_reasoning_tokens_are_counted_and_saved(tmp_path):
@@ -123,11 +124,16 @@ def test_cached_and_reasoning_tokens_are_counted_and_saved(tmp_path):
     assert (meta["output_tokens"], meta["reasoning_tokens"]) == (400, 300)
 
 
-def test_invalid_batch_paints_nothing_and_costs_nothing(tmp_path):
+def _results(events):
+    return {e["key"]: e for e in types(events, "activity")
+            if e.get("status") in ("done", "error") and e.get("key")}
+
+
+def test_bad_shape_stops_the_batch_there_and_costs_nothing(tmp_path):
     bad = rect(10, 10, 50, 50, "red")  # not hex
     steps = [
-        [paint([rect(0, 0, 100, 100), bad], "c1")],
-        [paint([rect(0, 0, 100, 100), rect(10, 10, 50, 50, "#ff0000")], "c2")],
+        [paint([rect(0, 0, 100, 100), bad, rect(60, 60, 90, 90)], "c1")],
+        [paint([rect(10, 10, 50, 50, "#ff0000"), rect(60, 60, 90, 90)], "c2")],  # the rest, fixed
         [finish("c3")],
     ]
     studio, model, events = make_studio(tmp_path, steps)
@@ -137,10 +143,52 @@ def test_invalid_batch_paints_nothing_and_costs_nothing(tmp_path):
         await _wait(studio)
     run(go)
 
-    results = {e["key"]: e for e in types(events, "activity") if e.get("status") in ("done", "error") and e.get("key")}
-    assert results["c1"]["status"] == "error" and "'red' is not a hex colour" in results["c1"]["result"]
+    results = _results(events)
+    first = results["c1"]["result"]
+    assert results["c1"]["status"] == "done"
+    assert "Painted only the first 1" in first and "Send shape 2 onwards again" in first
+    assert "'red' is not a hex colour" in first
+    shapes_events = types(events, "shapes")
+    assert [s["n"] for s in shapes_events[0]["shapes"]] == [1]   # nothing after the bad one
     assert results["c2"]["status"] == "done"
-    assert len(studio.ctx.canvas) == 2 and studio.ctx.budget.shapes_used == 2
+    assert len(studio.ctx.canvas) == 3 and studio.ctx.budget.shapes_used == 3
+    assert [ps.text for ps in studio.ctx.canvas.shapes][1] == "rectangle 10 10 50 50 #ff0000"
+
+
+def test_bad_first_shape_paints_nothing_and_lists_every_problem(tmp_path):
+    steps = [
+        [paint(["ellips 0 0 100 100 #fff", rect(0, 0, 10, 10), "line 0 0 50 50 #000 wobble=2"], "c1")],
+        [finish("c2")],
+    ]
+    studio, _, events = make_studio(tmp_path, steps)
+
+    async def go():
+        await studio.start("anything")
+        await _wait(studio)
+    run(go)
+
+    result = _results(events)["c1"]
+    assert result["status"] == "error" and result["result"].startswith("Error: nothing was painted")
+    assert "shape 1 \"ellips 0 0 100 100 #fff\": unknown kind 'ellips'" in result["result"]
+    assert "shape 3" in result["result"] and "unknown extra 'wobble'" in result["result"]
+    assert len(studio.ctx.canvas) == 0 and studio.ctx.budget.shapes_used == 0
+
+
+def test_shapes_crammed_into_one_string_are_split(tmp_path):
+    steps = [
+        [paint([f"{rect(0, 0, 100, 100)}\n{rect(10, 10, 50, 50)}; {rect(20, 20, 30, 30)}"], "c1")],
+        [finish("c2")],
+    ]
+    studio, _, events = make_studio(tmp_path, steps, max_shapes_per_call=3)
+
+    async def go():
+        await studio.start("anything")
+        await _wait(studio)
+    run(go)
+
+    assert len(studio.ctx.canvas) == 3
+    running = next(e for e in types(events, "activity") if e.get("key") == "c1" and e["status"] == "running")
+    assert running["text"].startswith("🖌️ Painting 3 shapes") and running["detail"] == "3 rectangles"
 
 
 def test_batch_over_per_call_limit_is_rejected(tmp_path):

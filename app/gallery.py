@@ -5,7 +5,8 @@ Each painting gets its own folder under DATA_DIR/gallery:
     20261031-114502-sunny-face/
         painting.png      clean painting at 2x (1024 px), for sharing
         painting.svg      the same painting as SVG
-        shapes.json       every shape in paint order
+        shapes.txt        every shape in paint order, as the model wrote it
+        shapes.json       every shape in paint order, as parsed data
         looks/look-1.png  exactly what the agent saw on each look (grid included)
         meta.json         prompt, title, note, settings, budgets used, tokens
 
@@ -71,6 +72,7 @@ class Gallery:
         svg = req.canvas.to_svg()
         (folder / "painting.svg").write_text(svg, encoding="utf-8")
         (folder / "painting.png").write_bytes(render_png(svg, zoom=GALLERY_ZOOM))
+        (folder / "shapes.txt").write_text(req.canvas.shape_text(), encoding="utf-8")
         (folder / "shapes.json").write_text(json.dumps(req.canvas.shape_log(), indent=1), encoding="utf-8")
         for i, png in enumerate(req.looks, start=1):
             (folder / "looks" / f"look-{i}.png").write_bytes(png)
@@ -89,6 +91,9 @@ class Gallery:
             "looks_used": len(req.looks),
             "looks_budget": req.looks_budget,
             "top_ups": req.top_ups,
+            # How the model wrote its shapes. Older paintings (JSON shapes) have no
+            # shape_format and no shapes.txt.
+            "shape_format": "notation",
             "input_tokens": req.input_tokens,
             "cached_tokens": req.cached_tokens,
             "output_tokens": req.output_tokens,

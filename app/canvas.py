@@ -9,8 +9,13 @@ gradient <defs>). The browser shows those fragments, and the backend joins
 the same fragments into one SVG and rasterises it for the agent's eyes and
 the gallery. One renderer, so what you see is exactly what the agent sees.
 
-Field descriptions in the models below are sent to the model as part of the
-paint tool's schema. Treat vague wording as a bug.
+The model never sees the Shape model below. It writes each shape as one short
+line of text (the shape notation, read by parse_shape), which costs far fewer
+tokens than JSON. The prompt and the paint tool's docstring teach the notation,
+and the messages here are read by the model, so treat vague wording as a bug.
+
+    kind x1 y1 x2 y2 fill [name=value extras]
+    ellipse 196 180 316 300 #f2c9a0 outline=#5a3a1a thickness=3
 """
 
 from __future__ import annotations
@@ -32,8 +37,13 @@ MIN_LINE_LENGTH = 1    # px
 MAX_LINE_THICKNESS = 100
 MAX_OUTLINE_THICKNESS = 40
 MAX_COLOURS = 3
+DEFAULT_LINE_THICKNESS = 3
+DEFAULT_OUTLINE_THICKNESS = 2
 
 _HEX = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
+KINDS = ("line", "rectangle", "ellipse", "triangle")
+_KIND_ALIASES = {"rect": "rectangle"}
+EXTRAS = ("opacity", "rotation", "thickness", "outline")
 
 
 # --------------------------------------------------------------------- models
@@ -107,6 +117,7 @@ class PaintedShape:
     n: int        # 1-based position in paint order
     shape: Shape
     svg: str      # self-contained SVG fragment
+    text: str = ""  # the shape notation exactly as the model wrote it
 
 
 # ----------------------------------------------------------------- validation
@@ -132,17 +143,17 @@ def check_shape(shape: Shape) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     notes: list[str] = []
 
-    for label, p in (("start", shape.start), ("end", shape.end)):
-        for axis, v in (("x", p.x), ("y", p.y)):
-            if not math.isfinite(v):
-                errors.append(f"{label}.{axis} is not a number")
-            elif not COORD_MIN <= v <= COORD_MAX:
-                errors.append(f"{label}.{axis} = {_fmt(v)} is too far off the canvas "
-                              f"(allowed {COORD_MIN} to {COORD_MAX})")
+    for name, v in (("x1", shape.start.x), ("y1", shape.start.y),
+                    ("x2", shape.end.x), ("y2", shape.end.y)):
+        if not math.isfinite(v):
+            errors.append(f"{name} is not a number")
+        elif not COORD_MIN <= v <= COORD_MAX:
+            errors.append(f"{name} = {_fmt(v)} is too far off the canvas "
+                          f"(allowed {COORD_MIN} to {COORD_MAX})")
 
     colours = shape.fill.colors
     if not colours:
-        errors.append("fill.colors is empty; give at least one hex colour")
+        errors.append("the fill has no colours; give at least one hex colour such as #ff8800")
     for c in colours:
         if normalise_hex(c) is None:
             errors.append(f"'{c}' is not a hex colour like #ff8800")
@@ -153,7 +164,7 @@ def check_shape(shape: Shape) -> tuple[list[str], list[str]]:
     if len(colours) > MAX_COLOURS:
         notes.append(f"only the first {MAX_COLOURS} colours were used")
     if not math.isfinite(shape.fill.angle):
-        errors.append("fill.angle is not a number")
+        errors.append("the linear blend angle is not a number")
 
     if not (math.isfinite(shape.opacity) and 0.05 <= shape.opacity <= 1):
         errors.append(f"opacity {_fmt(shape.opacity)} must be between 0.05 and 1")
@@ -181,12 +192,134 @@ def check_shape(shape: Shape) -> tuple[list[str], list[str]]:
         if not (math.isfinite(t) and 0 <= t <= MAX_OUTLINE_THICKNESS):
             errors.append(f"outline thickness {_fmt(t)} must be between 0 and {MAX_OUTLINE_THICKNESS}")
         if shape.outline_color is not None and normalise_hex(shape.outline_color) is None:
-            errors.append(f"outline_color '{shape.outline_color}' is not a hex colour like #000000")
+            errors.append(f"outline '{shape.outline_color}' is not a hex colour like #000000")
         if t > 0 and shape.outline_color is None:
-            notes.append("no outline_color, so no outline was painted")
+            notes.append("thickness without an outline colour, so no outline was painted")
         if t == 0 and shape.outline_color is not None:
             notes.append("outline thickness is 0, so no outline was painted")
     return errors, notes
+
+
+# ------------------------------------------------------------ shape notation
+def split_batch(texts: list[str]) -> list[str]:
+    """One string per shape. Several shapes crammed into one string (split by
+    new lines or semicolons) are split apart, and blank ones are dropped."""
+    return [part.strip() for text in texts for part in re.split(r"[\n;]", text or "")
+            if part.strip()]
+
+
+def kind_of(text: str) -> str:
+    """The kind a shape's text starts with, for the activity feed."""
+    word = (text.split() or ["?"])[0].lower()
+    return _KIND_ALIASES.get(word, word)
+
+
+def _number(token: str) -> float | None:
+    try:
+        return float(token)
+    except ValueError:
+        return None
+
+
+def parse_shape(text: str) -> tuple[Shape | None, list[str], list[str]]:
+    """Read one shape written in the notation: (shape or None, errors, notes).
+
+    Forgiving about letter case, commas, spaces around '=' and 'rect' for
+    rectangle, so small slips don't cost a repaint. Colours and ranges are
+    checked afterwards by check_shape.
+    """
+    notes: list[str] = []
+    tokens = re.sub(r"\s*=\s*", "=", (text or "").replace(",", " ")).lower().split()
+    if not tokens:
+        return None, ["the shape is empty"], notes
+
+    kind = _KIND_ALIASES.get(tokens[0], tokens[0])
+    if kind not in KINDS:
+        return None, [f"unknown kind '{tokens[0]}'; use line, rectangle, ellipse or triangle"], notes
+    coords = [_number(t) for t in tokens[1:5]]
+    if len(coords) < 4 or None in coords:
+        return None, [f"'{tokens[0]}' must be followed by four numbers: x1 y1 x2 y2"], notes
+    rest = tokens[5:]
+    if not rest or "=" in rest[0]:
+        return None, ["x1 y1 x2 y2 must be followed by the fill: a colour such as #ff8800, "
+                      "linear #a #b angle, or radial #a #b"], notes
+
+    # The fill: one colour, or linear/radial with 2 or 3 colours (and an angle for linear).
+    errors: list[str] = []
+    style, colours, angle = "solid", [], 0.0
+    if rest[0] in ("linear", "radial"):
+        style = rest.pop(0)
+        while rest and "=" not in rest[0] and _number(rest[0]) is None:
+            colours.append(rest.pop(0))
+    else:
+        colours.append(rest.pop(0))
+        while rest and rest[0].startswith("#"):
+            colours.append(rest.pop(0))
+    if style == "linear":
+        if rest and _number(rest[0]) is not None:
+            angle = _number(rest.pop(0))
+        else:
+            errors.append("a linear fill needs its angle after the colours, "
+                          "as in linear #4a90d9 #cfe8ff 180")
+    elif style == "radial" and rest and _number(rest[0]) is not None:
+        notes.append(f"radial fills have no angle, so {rest.pop(0)} was ignored")
+
+    # Extras: name=value, in any order.
+    values: dict[str, float | str] = {}
+    for token in rest:
+        name, eq, value = token.partition("=")
+        if not eq:
+            errors.append(f"unexpected '{token}'; extras are written name=value, such as opacity=0.5")
+        elif name not in EXTRAS:
+            errors.append(f"unknown extra '{name}'; use opacity, rotation, thickness or outline")
+        elif name == "outline":
+            values[name] = value
+        elif _number(value) is None:
+            errors.append(f"{name}={value} is not a number")
+        else:
+            values[name] = _number(value)
+    if errors:
+        return None, errors, notes
+
+    outline = values.get("outline")
+    if kind == "line":
+        thickness = DEFAULT_LINE_THICKNESS
+        if outline is not None:
+            notes.append("outline is ignored for lines")
+            outline = None
+    else:
+        thickness = DEFAULT_OUTLINE_THICKNESS if outline is not None else 0
+    shape = Shape(
+        kind=kind, start=Point(x=coords[0], y=coords[1]), end=Point(x=coords[2], y=coords[3]),
+        fill=Fill(style=style, colors=colours, angle=angle),
+        opacity=values.get("opacity", 1), rotation=values.get("rotation", 0),
+        thickness=values.get("thickness", thickness), outline_color=outline,
+    )
+    return shape, [], notes
+
+
+def check_batch(texts: list[str]) -> tuple[list[tuple[str, Shape]], list[str], list[str]]:
+    """Read and check a batch of shapes, in paint order.
+
+    Returns the shapes that can be painted (every shape before the first bad
+    one, with its text), every problem in the whole batch, and notes on the
+    shapes that can be painted. Messages name each shape by its place in the batch.
+    """
+    good: list[tuple[str, Shape]] = []
+    errors: list[str] = []
+    notes: list[str] = []
+    for i, text in enumerate(texts, start=1):
+        shape, problems, remarks = parse_shape(text)
+        if shape is not None:
+            problems, more = check_shape(shape)
+            remarks += more
+        if problems:
+            quoted = text if len(text) <= 80 else text[:80] + "…"
+            errors.append(f'shape {i} "{quoted}": ' + "; ".join(problems))
+        elif not errors:
+            good.append((text, shape))
+            notes += [f"shape {i} ({shape.kind}): {r}" for r in remarks]
+    return good, errors, notes
 
 
 # ------------------------------------------------------------------ rendering
@@ -284,23 +417,14 @@ class Canvas:
     def __len__(self) -> int:
         return len(self.shapes)
 
-    @staticmethod
-    def check(shapes: list[Shape]) -> tuple[list[str], list[str]]:
-        """Check a whole batch. Messages name each shape by its place in the batch."""
-        errors: list[str] = []
-        notes: list[str] = []
-        for i, shape in enumerate(shapes, start=1):
-            e, n = check_shape(shape)
-            errors += [f"shape {i} ({shape.kind}): {msg}" for msg in e]
-            notes += [f"shape {i} ({shape.kind}): {msg}" for msg in n]
-        return errors, notes
-
-    def add(self, shapes: list[Shape]) -> list[PaintedShape]:
-        """Paint a batch that has already passed check(), in order."""
+    def add(self, shapes: list[Shape], texts: list[str] | None = None) -> list[PaintedShape]:
+        """Paint shapes that have already passed check_batch(), in order.
+        texts: each shape's notation as the model wrote it, kept for the shape log."""
         painted = []
-        for shape in shapes:
+        for i, shape in enumerate(shapes):
             n = len(self.shapes) + 1
-            ps = PaintedShape(n=n, shape=shape, svg=shape_svg(n, shape))
+            text = texts[i] if texts else ""
+            ps = PaintedShape(n=n, shape=shape, svg=shape_svg(n, shape), text=text)
             self.shapes.append(ps)
             painted.append(ps)
         return painted
@@ -314,4 +438,8 @@ class Canvas:
 
     def shape_log(self) -> list[dict]:
         """Every shape in paint order, as plain data (saved with the painting)."""
-        return [{"n": ps.n, **ps.shape.model_dump()} for ps in self.shapes]
+        return [{"n": ps.n, "text": ps.text, **ps.shape.model_dump()} for ps in self.shapes]
+
+    def shape_text(self) -> str:
+        """Every shape in paint order, one line each, exactly as the model wrote it."""
+        return "".join(f"{ps.text}\n" for ps in self.shapes)
