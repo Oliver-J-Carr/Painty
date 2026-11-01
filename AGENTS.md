@@ -87,6 +87,7 @@ docker image prune
 - **Vision is a toggle, for comparison.** With vision off, the `look` tool is not registered at all and the prompt says it is painting blind.
 - **Budgets live in tools, not prompts alone.** Shape and look budgets are enforced in code. The per-call cap stops the agent dumping everything down in one blind batch.
 - **Pausing ends the run cleanly.** When the shape budget hits 0, `_stop_when_done` ends the run with complete history. "Keep going" tops up the budget and runs again with that history plus a user message. The hidden turn limit (`shapes_left + looks_left + 10`) is a runaway guard; hitting it also pauses, rebuilding history from the exception.
+- **Keep the prompt cacheable.** The instructions must be identical on every model call within a run, because they come before the whole history and the cache only reuses an exact prefix. Never put live counts in them; they belong in tool results. Never edit earlier history items in place. The drawing id is the `prompt_cache_key`.
 - **Settings are frozen per drawing.** A drawing copies the settings when it starts. Only the top-up sizes are read live, when "Keep going" is clicked. Settings are locked while painting.
 - **State.** Drawing state is per connection and in memory (refresh = fresh studio). Only the gallery and settings persist, as plain files in `DATA_DIR`. No database.
 - **Tracing.** Each run segment (start, each keep going) is one trace, all grouped by the drawing id. `OPENAI_AGENTS_DISABLE_TRACING=true` turns it off.

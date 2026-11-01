@@ -35,6 +35,7 @@ from .gallery import Gallery, SaveRequest, settings_dict
 from .hooks import ActivityHooks
 from .painter import PAUSED, build_painter_agent
 from .settings_store import SettingsStore
+from .tools import budget_left
 
 log = logging.getLogger("painty")
 
@@ -99,11 +100,11 @@ class Studio:
         s = self.store.current
         self.ctx = PaintyContext(send=self.send, settings=s, prompt=prompt,
                                  budget=Budget(s.shape_budget, s.look_budget if s.vision else 0))
-        self.agent = build_painter_agent(s, self.model)
+        self.drawing_id = f"painty_{uuid.uuid4().hex[:12]}"
+        self.agent = build_painter_agent(s, self.model, cache_key=self.drawing_id)
         self.history = None
         self.saved_id = None
         self.input_tokens = self.cached_tokens = self.output_tokens = self.reasoning_tokens = 0
-        self.drawing_id = f"painty_{uuid.uuid4().hex[:12]}"
 
         await self._emit({"type": "canvas_reset", "prompt": prompt,
                           "settings": settings_dict(s)})
@@ -123,7 +124,7 @@ class Studio:
         await self.ctx.send_budget()
         extra = f"{s.top_up_shapes} more shapes" + (f" and {looks} more looks" if looks else "")
         await self.ctx.activity("agent", f"⏩ Keep going: {extra}")
-        message = (f"You have been given {extra}. Carry on from where you stopped, "
+        message = (f"You have been given {extra}. {budget_left(self.ctx)} Carry on from where you stopped, "
                    "and call finish when the painting is done.")
         items = self.history + [{"role": "user", "content": message}]
         self._launch(items, label="keep going")

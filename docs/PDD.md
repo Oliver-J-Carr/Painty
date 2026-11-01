@@ -142,7 +142,8 @@ A drawing copies the settings when it starts, so changing them never changes the
 - The system prompt (`app/prompts/painter.md`) teaches the paint system, coordinates, layering, budget, a working method (plan in pixels, paint back to front in stages, look after each main stage) and to always end with `finish`. It has a vision-on and a vision-off section.
 - The agent works on its own and never asks questions.
 - Each `paint` call carries a short `note`, shown in the feed, so viewers can follow its plan.
-- Instructions are dynamic: rebuilt before every model call with the current budget.
+- Instructions are dynamic, so the budget totals are right after a "keep going" top-up, but they never change within a run. The prompt cache only reuses an exact prefix of each request, and the instructions come before the whole history, so live counts there (an earlier "right now" status line) made every call miss the cache. Live counts are in the tool results instead.
+- Each drawing's id is sent as the `prompt_cache_key`, so all its calls, across keep going segments, are routed to the same cache.
 
 ## 8. Architecture
 
@@ -230,3 +231,5 @@ Endings: `finished` (the agent called finish), `ended` (it stopped without calli
 | 31 Oct 2026 | One prompt per drawing in v0.1 |
 | 31 Oct 2026 | Gallery as plain files in a named Docker volume; settings saved to JSON |
 | 31 Oct 2026 | Mirror Matey's structure; port 8091; named Painty |
+| 1 Nov 2026 | Record cached and reasoning tokens per drawing |
+| 1 Nov 2026 | Instructions fixed within a run (no live status line) and drawing id as `prompt_cache_key`, so the prompt cache works |

@@ -25,7 +25,7 @@ MAX_TITLE = 80
 MAX_NOTE = 500
 
 
-def _left(c: PaintyContext) -> str:
+def budget_left(c: PaintyContext) -> str:
     b = c.budget
     text = f"Shapes left: {b.shapes_left} of {b.shapes_total}."
     if c.settings.vision:
@@ -78,7 +78,7 @@ async def paint(ctx: Ctx, shapes: list[Shape], note: str) -> str:
 
     last = first + len(painted) - 1
     span = f"shape {first}" if first == last else f"shapes {first} to {last}"
-    result = f"Painted {len(painted)} ({span} on the canvas). {_left(c)}"
+    result = f"Painted {len(painted)} ({span} on the canvas). {budget_left(c)}"
     if notes:
         result += "\nNotes: " + "; ".join(notes) + "."
     if b.shapes_left == 0:
@@ -114,7 +114,7 @@ async def look(ctx: Ctx, focus: str) -> list[ToolOutputText | ToolOutputImage]:
                   "focus": focus, "image": url})
     await c.send_budget()
     text = (f"Look {b.looks_used}: the canvas after {len(c.canvas)} shapes. "
-            f"Ruler and grid lines (every {GRID_STEP} px) are in your view only. {_left(c)}")
+            f"Ruler and grid lines (every {GRID_STEP} px) are in your view only. {budget_left(c)}")
     return [ToolOutputText(text=text), ToolOutputImage(image_url=url, detail="high")]
 
 

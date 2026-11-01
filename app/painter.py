@@ -14,19 +14,18 @@ PAUSED = "paused: shape budget used up"
 
 
 def _instructions(ctx: RunContextWrapper[PaintyContext], agent: Agent) -> str:
-    """Dynamic instructions, rebuilt before every model call, so the numbers
-    stay right after a "keep going" top-up."""
+    """Dynamic instructions, so the totals are right after a "keep going" top-up.
+
+    They must not change between model calls within a run: the prompt cache only
+    reuses an exact prefix, and the instructions come before the whole history.
+    Live counts belong in tool results, which every paint and look call ends with.
+    """
     c = ctx.context
     b = c.budget
     size = c.canvas.size
     vision = fill(VISION_ON, LOOKS=b.looks_total) if c.settings.vision else VISION_OFF
-    prompt = fill(PAINTER_PROMPT, SIZE=size, HALF=size // 2, SHAPES=b.shapes_total,
-                  MAX_PER_CALL=c.settings.max_shapes_per_call, VISION_SECTION=vision)
-    status = (f"Shapes painted so far: {b.shapes_used}. "
-              f"Shapes left: {b.shapes_left} of {b.shapes_total}.")
-    if c.settings.vision:
-        status += f" Looks left: {b.looks_left} of {b.looks_total}."
-    return f"{prompt}\n\n# Right now\n\n{status}"
+    return fill(PAINTER_PROMPT, SIZE=size, HALF=size // 2, SHAPES=b.shapes_total,
+                MAX_PER_CALL=c.settings.max_shapes_per_call, VISION_SECTION=vision)
 
 
 def _stop_when_done(ctx: RunContextWrapper[PaintyContext],
@@ -45,8 +44,13 @@ def _stop_when_done(ctx: RunContextWrapper[PaintyContext],
     return ToolsToFinalOutputResult(is_final_output=False)
 
 
-def build_painter_agent(settings: StudioSettings, model=None) -> Agent[PaintyContext]:
-    """model overrides settings.model (tests pass a scripted fake model)."""
+def build_painter_agent(settings: StudioSettings, model=None,
+                        cache_key: str | None = None) -> Agent[PaintyContext]:
+    """model overrides settings.model (tests pass a scripted fake model).
+
+    cache_key is sent as the prompt_cache_key, so every call in one drawing,
+    across keep going segments, is routed to the same prompt cache.
+    """
     effort = settings.reasoning_effort
     return Agent[PaintyContext](
         name="Painty",
@@ -57,6 +61,7 @@ def build_painter_agent(settings: StudioSettings, model=None) -> Agent[PaintyCon
         model_settings=ModelSettings(
             parallel_tool_calls=False,
             reasoning=Reasoning(effort=effort) if effort else None,
+            extra_args={"prompt_cache_key": cache_key} if cache_key else None,
         ),
         tool_use_behavior=_stop_when_done,
     )

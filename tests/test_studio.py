@@ -186,8 +186,36 @@ def test_budget_pause_then_keep_going_resumes_same_conversation(tmp_path):
     resumed_input = model.calls[1].input
     assert any(isinstance(i, dict) and i.get("call_id") == "c1" for i in resumed_input)
     assert "5 more shapes" in str(resumed_input[-1])
+    assert "Shapes left: 5 of 7." in str(resumed_input[-1])
+    # The new totals reach the instructions, and the drawing keeps its cache key.
+    assert "at most 2 shapes" in model.calls[0].system_instructions
+    assert "at most 7 shapes" in model.calls[1].system_instructions
+    keys = {c.model_settings.extra_args["prompt_cache_key"] for c in model.calls}
+    assert keys == {studio.drawing_id}
     meta = json.loads((tmp_path / "gallery" / studio.saved_id / "meta.json").read_text())
     assert meta["top_ups"] == 1 and meta["shapes_budget"] == 7
+
+
+def test_instructions_stay_the_same_within_a_run(tmp_path):
+    # The prompt cache only reuses an exact prefix, and the instructions come first,
+    # so live counts in them would make every call miss the cache.
+    steps = [
+        [paint([rect(0, 0, 512, 512)], "c1")],
+        [look("c2")],
+        [paint([rect(100, 100, 200, 200)], "c3")],
+        [finish("c4")],
+    ]
+    studio, model, _ = make_studio(tmp_path, steps)
+
+    async def go():
+        await studio.start("squares")
+        await _wait(studio)
+    run(go)
+
+    assert studio.state == "finished" and len(model.calls) == 4
+    assert len({c.system_instructions for c in model.calls}) == 1
+    assert all(c.model_settings.extra_args == {"prompt_cache_key": studio.drawing_id}
+               for c in model.calls)
 
 
 def test_vision_off_has_no_look_tool(tmp_path):
