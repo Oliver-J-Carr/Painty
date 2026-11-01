@@ -139,7 +139,7 @@ A drawing copies the settings when it starts, so changing them never changes the
 ## 7. Prompting
 
 - **One prompt per drawing** (v0.1). Free text, up to 500 characters. Each new prompt starts a fresh canvas.
-- The system prompt (`app/prompts/painter.md`) teaches the paint system, coordinates, layering, budget, a working method (plan in pixels, paint back to front in stages, look after each main stage) and to always end with `finish`. It has a vision-on and a vision-off section.
+- The system prompt (`app/prompts/painter.md`) teaches the paint system, coordinates, layering, budget, a working method (plan in pixels, paint back to front in stages, look after each main stage but not after the final touches) and to always end with `finish`. It has a vision-on and a vision-off section.
 - The agent works on its own and never asks questions.
 - Each `paint` call carries a short `note`, shown in the feed, so viewers can follow its plan.
 - Instructions are dynamic, so the budget totals are right after a "keep going" top-up, but they never change within a run. The prompt cache only reuses an exact prefix of each request, and the instructions come before the whole history, so live counts there (an earlier "right now" status line) made every call miss the cache. Live counts are in the tool results instead.
@@ -233,3 +233,4 @@ Endings: `finished` (the agent called finish), `ended` (it stopped without calli
 | 31 Oct 2026 | Mirror Matey's structure; port 8091; named Painty |
 | 1 Nov 2026 | Record cached and reasoning tokens per drawing |
 | 1 Nov 2026 | Instructions fixed within a run (no live status line) and drawing id as `prompt_cache_key`, so the prompt cache works |
+| 1 Nov 2026 | No final look before finishing: the prompt says to finish straight after the final touches. A look at that point rarely led to a correction, and each look sends an image |

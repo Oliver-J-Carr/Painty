@@ -121,7 +121,8 @@ async def look(ctx: Ctx, focus: str) -> list[ToolOutputText | ToolOutputImage]:
 @function_tool
 async def finish(ctx: Ctx, title: str, note: str) -> str:
     """Finish the painting. Call this once, when the picture is complete or as
-    good as you can make it. Painting stops after this call.
+    good as you can make it. Painting stops after this call. Call it straight
+    after your last paint call: there is no need to look at the canvas first.
 
     Args:
         title: A short title for the painting, e.g. "Ginger cat in the sun".
