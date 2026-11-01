@@ -1,6 +1,6 @@
 # Painty: project design document
 
-Version 0.1.0, 31 October 2026. Owner: Oliver Carr.
+Version 0.2.0, 1 November 2026. Owner: Oliver Carr.
 
 This records what Painty is for, every design decision made so far and the reasons behind them, so later work (by a person, Claude Code or another agent) builds on them rather than undoing them. `AGENTS.md` covers how to work on the code; this covers why it is the way it is.
 
