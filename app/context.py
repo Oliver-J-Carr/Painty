@@ -50,13 +50,30 @@ class Budget:
 
 
 @dataclass
+class Stage:
+    """One paint call that put shapes down: canvas shapes first to last."""
+    first: int
+    last: int
+    note: str = ""
+
+
+@dataclass
+class Look:
+    """One look: exactly what the agent saw, and how many shapes were on the canvas."""
+    png: bytes
+    focus: str
+    shapes: int
+
+
+@dataclass
 class PaintyContext:
     send: SendEvent
     settings: StudioSettings           # frozen copy taken when the drawing started
     prompt: str = ""
     canvas: Canvas = field(default_factory=Canvas)
     budget: Budget = field(default_factory=lambda: Budget(0, 0))
-    looks: list[bytes] = field(default_factory=list)  # PNGs the agent saw, in order
+    looks: list[Look] = field(default_factory=list)    # what the agent saw, in order
+    stages: list[Stage] = field(default_factory=list)  # each paint call that painted, in order
     finish_title: str | None = None    # set by the finish tool
     finish_note: str = ""
     started_at: float = field(default_factory=time.time)

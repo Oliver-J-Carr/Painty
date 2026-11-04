@@ -373,23 +373,137 @@ function renderGallery(items) {
 }
 
 let gridScroll = 0; // where the grid was scrolled to, restored by "Back to all paintings"
+let stepStage = null; // (+1 or -1) => void while a detail with stages is open; arrow keys use it
+
+const EYE_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M1.5 12S5.5 4.5 12 4.5 22.5 12 22.5 12 18.5 19.5 12 19.5 1.5 12 1.5 12Z" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/><circle cx="12" cy="12" r="3.6" fill="currentColor"/></svg>';
+
+function eyeBadge() {
+  const badge = el("span", "eye-badge");
+  badge.innerHTML = EYE_SVG;
+  return badge;
+}
+
+function shapeSpan(st) {
+  if (st.last === 0) return "no shapes yet";
+  return st.first === st.last ? `shape ${st.first}` : `shapes ${st.first}–${st.last}`;
+}
+
+// The mini gallery: a big preview with a strip of every stage (one per paint call) under it.
+// Stages Painty looked at are marked with an eye, and can swap to exactly what Painty saw.
+function stageViewer(m, base) {
+  const stages = m.stages;
+  const looks = new Map((m.looks || []).map((l) => [l.n, l]));
+  const total = stages.filter((st) => st.n > 0).length;
+  const final = stages[stages.length - 1];
+  const label = (st) => (st === final ? "Final" : st.n === 0 ? "Blank" : String(st.n));
+  const src = (st) => (st === final ? `${base}/painting.png` : `${base}/stages/stage-${st.n}.png`);
+
+  const wrap = el("div", "stage-viewer");
+  const big = el("button", "stage-preview");
+  big.type = "button";
+  const bigImg = el("img", "big");
+  big.appendChild(bigImg);
+  const caption = el("p", "stage-caption");
+  const sawLine = el("p", "stage-saw");
+  const views = el("div", "stage-views");
+  views.setAttribute("role", "group");
+  views.setAttribute("aria-label", "Which picture to show");
+  const strip = el("div", "stage-strip");
+  wrap.append(big, caption, sawLine, views, strip);
+
+  let current = stages.length - 1;
+  let captionText = "";
+
+  function showImage(url, alt, text) {
+    bigImg.src = url;
+    bigImg.alt = alt;
+    captionText = text;
+  }
+
+  function select(i) {
+    current = Math.max(0, Math.min(stages.length - 1, i));
+    const st = stages[current];
+    for (const [j, b] of [...strip.children].entries()) b.setAttribute("aria-pressed", String(j === current));
+    strip.children[current].scrollIntoView({ block: "nearest", inline: "nearest" });
+
+    const name = st === final ? `Final (stage ${st.n} of ${total})`
+      : st.n === 0 ? "Blank canvas" : `Stage ${st.n} of ${total}`;
+    const note = st.n > 0 && st.note ? ` · “${st.note}”` : "";
+    caption.textContent = `${name} · ${shapeSpan(st)}${note}`;
+    showImage(src(st), `${m.title}, ${name.toLowerCase()}`, `${name}: ${shapeSpan(st)}`);
+
+    const seen = st.looks.map((n) => looks.get(n) || { n, focus: "" });
+    sawLine.hidden = seen.length === 0;
+    views.hidden = seen.length === 0;
+    views.replaceChildren();
+    if (!seen.length) return;
+    sawLine.replaceChildren(eyeBadge(), document.createTextNode(seen.length === 1
+      ? `Painty looked here${seen[0].focus ? `: “${seen[0].focus}”` : ""}`
+      : `Painty looked here ${seen.length} times`));
+
+    const options = [["Painting", null], ...seen.map((l) => [seen.length === 1 ? "What Painty saw" : `Look ${l.n}`, l])];
+    for (const [text, look] of options) {
+      const b = el("button", "stage-view", text);
+      b.type = "button";
+      b.setAttribute("aria-pressed", String(look === null));
+      b.addEventListener("click", () => {
+        for (const other of views.children) other.setAttribute("aria-pressed", String(other === b));
+        if (look) {
+          showImage(`${base}/looks/look-${look.n}.png`, `What Painty saw on look ${look.n}`,
+            `Look ${look.n}${look.focus ? `: ${look.focus}` : ""}`);
+          if (seen.length > 1) sawLine.lastChild.textContent = `Painty looked here${look.focus ? `: “${look.focus}”` : ""}`;
+        } else {
+          select(current);
+        }
+      });
+      views.appendChild(b);
+    }
+  }
+
+  stages.forEach((st, i) => {
+    const b = el("button", "stage-thumb");
+    b.type = "button";
+    const looked = st.looks.length > 0;
+    if (looked) b.classList.add("looked");
+    const name = st === final ? "Final stage" : st.n === 0 ? "Blank canvas" : `Stage ${st.n} of ${total}`;
+    b.setAttribute("aria-label", `${name}, ${shapeSpan(st)}${looked ? ", Painty looked at this" : ""}`);
+    const img = el("img");
+    img.src = `${base}/stages/stage-${st.n}.png`;
+    img.alt = "";
+    img.loading = "lazy";
+    b.append(img, el("span", "stage-label", label(st)));
+    if (looked) b.appendChild(eyeBadge());
+    b.addEventListener("click", () => select(i));
+    strip.appendChild(b);
+  });
+
+  big.setAttribute("aria-label", "Enlarge");
+  big.addEventListener("click", () => openLightbox(bigImg.src, captionText));
+  stepStage = (delta) => select(current + delta);
+  select(current);
+  return wrap;
+}
 
 function showDetail(m) {
+  stepStage = null;
   const base = `/gallery/${encodeURIComponent(m.id)}`;
   const s = m.settings || {};
   const d = $("gallery-detail");
   d.replaceChildren();
 
-  const left = el("div");
-  const big = el("img", "big");
-  big.src = `${base}/painting.png`;
-  big.alt = m.title;
-  left.appendChild(big);
+  const left = m.stages?.length ? stageViewer(m, base) : el("div");
+  if (!m.stages?.length) { // older paintings: no stage snapshots
+    const big = el("img", "big");
+    big.src = `${base}/painting.png`;
+    big.alt = m.title;
+    left.appendChild(big);
+  }
 
   const right = el("div");
   const back = el("button", "ghost-dark back", "Back to all paintings");
   back.type = "button";
   back.addEventListener("click", () => {
+    stepStage = null;
     d.hidden = true;
     $("gallery-grid").hidden = false;
     $("gallery-body").scrollTop = gridScroll;
@@ -427,7 +541,7 @@ function showDetail(m) {
   }
   right.appendChild(files);
 
-  if (m.looks_used) {
+  if (m.looks_used && !m.stages?.length) { // newer paintings show their looks in the stage strip
     right.appendChild(el("p", "", "What Painty saw"));
     const looks = el("div", "looks");
     for (let i = 1; i <= m.looks_used; i++) {
@@ -473,6 +587,13 @@ function toast(text, kind = "info") {
 }
 
 document.addEventListener("keydown", (ev) => {
+  // Left and right step through a painting's stages in the gallery.
+  if ((ev.key === "ArrowLeft" || ev.key === "ArrowRight") && stepStage && $("lightbox").hidden
+      && !$("gallery").hidden && !$("gallery-detail").hidden) {
+    ev.preventDefault();
+    stepStage(ev.key === "ArrowLeft" ? -1 : 1);
+    return;
+  }
   if (ev.key !== "Escape") return;
   if (!$("lightbox").hidden) $("lightbox").hidden = true;
   else if (!$("gallery").hidden) $("gallery").hidden = true;

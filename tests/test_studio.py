@@ -6,9 +6,11 @@ events the browser would receive.
 """
 
 import asyncio
+import io
 import json
 
 from agents import Usage, set_tracing_disabled
+from PIL import Image
 from agents.testing import ScriptedModel, assistant_message, function_call
 from openai.types.responses.response_usage import InputTokensDetails, OutputTokensDetails
 
@@ -100,6 +102,65 @@ def test_paint_look_finish_saves_to_gallery(tmp_path):
     log = json.loads((folder / "shapes.json").read_text())
     assert [s["text"] for s in log] == [rect(0, 0, 512, 512, "#87ceeb"), rect(100, 100, 200, 200, "#ff0000")]
     assert log[1]["kind"] == "rectangle" and log[1]["fill"]["colors"] == ["#ff0000"]
+
+
+def _px(path, x, y):
+    return Image.open(io.BytesIO(path.read_bytes())).convert("RGB").getpixel((x, y))
+
+
+def test_every_paint_call_is_saved_as_a_stage_with_its_looks(tmp_path):
+    steps = [
+        [paint([rect(0, 0, 512, 512, "#0000ff")], "c1", note="sky")],
+        [look("c2", "is the sky there?")],
+        [paint([rect(100, 100, 200, 200, "#ff0000")], "c3", note="red square")],
+        [finish("c4")],
+    ]
+    studio, _, events = make_studio(tmp_path, steps)
+
+    async def go():
+        await studio.start("a red square on blue")
+        await _wait(studio)
+    run(go)
+
+    folder = tmp_path / "gallery" / studio.saved_id
+    meta = json.loads((folder / "meta.json").read_text())
+    assert meta["stages"] == [
+        {"n": 1, "first": 1, "last": 1, "note": "sky", "looks": [1]},
+        {"n": 2, "first": 2, "last": 2, "note": "red square", "looks": []},
+    ]
+    assert meta["looks"] == [{"n": 1, "focus": "is the sky there?", "shapes": 1}]
+    # Each stage is the canvas as it was after that paint call, with no grid.
+    assert _px(folder / "stages" / "stage-1.png", 150, 150) == (0, 0, 255)
+    assert _px(folder / "stages" / "stage-2.png", 150, 150) == (255, 0, 0)
+    assert _px(folder / "stages" / "stage-1.png", 64, 64) == (0, 0, 255)  # no grid line
+
+
+def test_stages_follow_what_was_actually_painted(tmp_path):
+    bad = rect(10, 10, 50, 50, "red")  # not hex
+    steps = [
+        [look("c1", "blank?")],
+        [paint([rect(0, 0, 100, 100), bad, rect(60, 60, 90, 90)], "c2", note="partly")],
+        [paint([bad], "c3", note="nothing")],
+        [paint([rect(10, 10, 50, 50, "#ff0000"), rect(60, 60, 90, 90)], "c4", note="the rest")],
+        [finish("c5")],
+    ]
+    studio, _, events = make_studio(tmp_path, steps)
+
+    async def go():
+        await studio.start("anything")
+        await _wait(studio)
+    run(go)
+
+    folder = tmp_path / "gallery" / studio.saved_id
+    meta = json.loads((folder / "meta.json").read_text())
+    assert [(st["n"], st["first"], st["last"], st["note"], st["looks"]) for st in meta["stages"]] == [
+        (0, 0, 0, "Blank canvas", [1]),   # the look before any paint
+        (1, 1, 1, "partly", []),          # only the shape before the bad one
+        (2, 2, 3, "the rest", []),        # the batch that painted nothing made no stage
+    ]
+    assert sorted(p.name for p in (folder / "stages").iterdir()) == [
+        "stage-0.png", "stage-1.png", "stage-2.png"]
+    assert _px(folder / "stages" / "stage-0.png", 50, 50) == (255, 255, 255)
 
 
 def test_cached_and_reasoning_tokens_are_counted_and_saved(tmp_path):

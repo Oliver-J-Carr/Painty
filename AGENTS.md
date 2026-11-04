@@ -65,7 +65,7 @@ docker image prune
 - `app/tools.py`: the three function tools: `paint`, `look`, `finish`.
 - `app/canvas.py`: the shape models (internal only), the shape notation parser, validation and SVG rendering. No AI here.
 - `app/view.py`: SVG to PNG (resvg), and the agent's view with its ruler frame and grid (Pillow).
-- `app/gallery.py`: saves finished paintings as plain files under `DATA_DIR/gallery`.
+- `app/gallery.py`: saves finished paintings as plain files under `DATA_DIR/gallery`, including a snapshot of each stage (one per paint call that painted), rendered at save time.
 - `app/settings_store.py`: the settings panel's values, clamped and saved to `DATA_DIR/settings.json`.
 - `app/context.py`: `PaintyContext` (canvas, budget, looks, event helpers), passed to tools and hooks, never sent to the model.
 - `app/hooks.py`: `RunHooks` that feed the activity panel.

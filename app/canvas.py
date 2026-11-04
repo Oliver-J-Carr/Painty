@@ -429,9 +429,12 @@ class Canvas:
             painted.append(ps)
         return painted
 
-    def to_svg(self) -> str:
+    def to_svg(self, upto: int | None = None) -> str:
+        """The painting as one SVG. upto: only the first `upto` shapes (a stage
+        snapshot); None means all of them."""
         s = self.size
-        body = "".join(ps.svg for ps in self.shapes)
+        shapes = self.shapes if upto is None else self.shapes[:upto]
+        body = "".join(ps.svg for ps in shapes)
         return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {s} {s}" '
                 f'width="{s}" height="{s}">'
                 f'<rect width="{s}" height="{s}" fill="{self.background}"/>{body}</svg>')

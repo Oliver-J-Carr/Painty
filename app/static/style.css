@@ -221,6 +221,35 @@ button, input, select { font: inherit; }
 .gallery-detail .files { display: flex; gap: 14px; font-size: 14px; }
 .gallery-detail a { color: var(--mat); font-weight: 600; }
 
+/* The stage viewer: a big preview, a caption and a strip of every stage. Stages Painty looked
+   at get a cadmium border and an eye badge, so they stand out at thumbnail size. */
+.stage-viewer { min-width: 0; }
+.stage-preview { display: block; width: 100%; padding: 0; border: 0; background: none; cursor: zoom-in; }
+.stage-preview .big { display: block; }
+.stage-caption { margin: 10px 0 0; font-weight: 600; }
+.stage-saw { margin: 4px 0 0; display: flex; align-items: center; gap: 8px; font-variation-settings: "CASL" 1; }
+.stage-views { display: inline-flex; margin-top: 8px; border-radius: var(--radius); box-shadow: inset 0 0 0 1.5px var(--graphite); overflow: hidden; }
+.stage-view { border: 0; background: transparent; color: var(--graphite); padding: 5px 12px; font-weight: 600; font-size: 14px; cursor: pointer; }
+.stage-view + .stage-view { box-shadow: inset 1.5px 0 0 var(--graphite); }
+.stage-view[aria-pressed="true"] { background: var(--graphite); color: var(--paper); }
+.stage-strip { display: flex; gap: 14px; overflow-x: auto; padding: 14px 10px 10px 8px; margin-top: 4px; }
+.stage-thumb {
+  position: relative; flex: none; width: 76px; padding: 0; border: 0; background: none; cursor: pointer;
+  color: var(--graphite-soft); font-size: 12px; font-weight: 600; text-align: center;
+}
+.stage-thumb img { display: block; width: 76px; height: 76px; border-radius: 3px; box-shadow: 0 0 0 1px var(--paper-edge); }
+.stage-label { display: block; margin-top: 3px; }
+.stage-thumb.looked img { box-shadow: 0 0 0 3px var(--cadmium); }
+.stage-thumb[aria-pressed="true"] { color: var(--graphite); }
+.stage-thumb[aria-pressed="true"] img { box-shadow: 0 0 0 3px var(--graphite); }
+.stage-thumb.looked[aria-pressed="true"] img { box-shadow: 0 0 0 3px var(--cadmium), 0 0 0 6px var(--graphite); }
+.eye-badge {
+  display: inline-grid; place-items: center; flex: none; width: 22px; height: 22px; border-radius: 50%;
+  background: var(--cadmium); color: var(--graphite);
+}
+.eye-badge svg { width: 15px; height: 15px; }
+.stage-thumb .eye-badge { position: absolute; top: -8px; right: -8px; box-shadow: 0 0 0 2px var(--paper); }
+
 .lightbox-figure { margin: auto; max-width: min(720px, 100%); }
 .lightbox-figure img { display: block; width: 100%; border-radius: 3px; }
 .lightbox-figure figcaption { color: var(--paper); margin-top: 10px; text-align: center; }

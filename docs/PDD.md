@@ -192,7 +192,8 @@ idle --paint--> painting --finish--------> finished (saved)
 - **Activity feed** (permanent right column): every batch with its note and shape counts, every look with a thumbnail of exactly what the agent saw (click to enlarge), errors, and the finish.
 - **Paused card** with Keep going and Finish here. **Finished card** with title, note, shape and token counts, and a link to the gallery.
 - **Settings drawer** for model, reasoning effort, vision and budgets.
-- **Gallery** with each painting's prompt, settings, budgets used, top-ups, tokens, time, the looks it took, and links to the PNG, SVG and shape log (as the agent wrote it, and as JSON).
+- **Gallery** with each painting's prompt, settings, budgets used, top-ups, tokens, time, and links to the PNG, SVG and shape log (as the agent wrote it, and as JSON).
+- **Stage viewer** in each gallery painting: the finished painting large, with a strip of every stage under it (one per paint call; click or use the arrow keys to load one into the preview). Looks alone don't tell the story: a model often paints several batches in a row without looking, tracking its layers in its head. Stages the agent looked at get a cadmium border and an eye badge, and a toggle under the preview swaps in exactly what it saw (ruler and grid included) with its focus. Older paintings, which have no stages, show their looks in a list instead.
 - Type: Pixelify Sans for the brand (a nod to Matey), Recursive for everything else, with its casual style reserved for Painty's own words (notes and titles).
 
 ## 10. Gallery
@@ -204,7 +205,8 @@ Each painting is a folder under `DATA_DIR/gallery` (in the container, the `paint
 - `shapes.txt`: every shape in paint order, one line each, exactly as the agent wrote it ("Shapes" in the gallery)
 - `shapes.json`: every shape in paint order as parsed data, with its original `text` ("Shapes (JSON)")
 - `looks/look-N.png`: exactly what the agent saw, ruler and grid included
-- `meta.json`: prompt, title, note, ending, settings, budgets used, top-ups, `shape_format` (`notation`; missing on paintings from before it, which have no `shapes.txt`), tokens (input with the cached share, output with the reasoning share), time, version
+- `stages/stage-N.png`: the canvas after each paint call that painted something (512 px, no grid). Rendered at save time from the first shapes of the canvas, so painting gets no slower. A look at a blank canvas adds a `stage-0.png`
+- `meta.json`: prompt, title, note, ending, settings, budgets used, top-ups, `shape_format` (`notation`; missing on paintings from before it, which have no `shapes.txt`), tokens (input with the cached share, output with the reasoning share), time, version, `stages` (each with its first and last shape, note and the looks taken there) and `looks` (each look's focus and how many shapes it saw). Paintings from before stages have neither
 
 Endings: `finished` (the agent called finish), `ended` (it stopped without calling finish, so its last words become the note) and `saved` (you saved it by hand).
 
@@ -257,3 +259,4 @@ Endings: `finished` (the agent called finish), `ended` (it stopped without calli
 | 1 Nov 2026 | Instructions fixed within a run (no live status line) and drawing id as `prompt_cache_key`, so the prompt cache works |
 | 1 Nov 2026 | No final look before finishing: the prompt says to finish straight after the final touches. A look at that point rarely led to a correction, and each look sends an image |
 | 1 Nov 2026 | Shapes written as one-line text notation instead of JSON; batches painted up to the first bad shape instead of all or nothing |
+| 4 Nov 2026 | Gallery saves a snapshot of every stage (each paint call), and shows them in one strip with the looked-at stages marked and a toggle to what the agent saw |

@@ -31,6 +31,16 @@ def test_any_drag_direction_paints_the_same_box():
     assert a == b == c
 
 
+def test_to_svg_upto_renders_only_the_first_shapes():
+    canvas = Canvas()
+    canvas.add([make(start=(0, 0), end=(100, 100), colours=["#ff0000"]),
+                make(start=(50, 50), end=(150, 150), colours=["#0000ff"])])
+    assert pixel(canvas.to_svg(upto=1), 75, 75) == (255, 0, 0)    # the blue square isn't there yet
+    assert pixel(canvas.to_svg(upto=1), 125, 125) == (255, 255, 255)
+    assert pixel(canvas.to_svg(upto=0), 25, 25) == (255, 255, 255)  # blank canvas
+    assert pixel(canvas.to_svg(), 75, 75) == (0, 0, 255)
+
+
 def test_later_shapes_cover_earlier_ones():
     canvas = Canvas()
     canvas.add([make(start=(0, 0), end=(100, 100), colours=["#ff0000"]),

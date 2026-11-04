@@ -17,7 +17,7 @@ from __future__ import annotations
 from agents import RunContextWrapper, ToolOutputImage, ToolOutputText, function_tool
 
 from .canvas import check_batch, split_batch
-from .context import PaintyContext
+from .context import Look, PaintyContext, Stage
 from .view import GRID_STEP, agent_view_png, data_url
 
 Ctx = RunContextWrapper[PaintyContext]
@@ -80,6 +80,7 @@ async def paint(ctx: Ctx, shapes: list[str], note: str) -> str:
         first = len(c.canvas) + 1
         painted = c.canvas.add([s for _, s in good], [t for t, _ in good])
         b.shapes_used += len(painted)
+        c.stages.append(Stage(first, first + len(painted) - 1, (note or "").strip()[:MAX_NOTE]))
         await c.emit({"type": "shapes", "key": ctx.tool_call_id,
                       "shapes": [{"n": p.n, "svg": p.svg} for p in painted]})
         await c.send_budget()
@@ -123,7 +124,7 @@ async def look(ctx: Ctx, focus: str) -> list[ToolOutputText | ToolOutputImage]:
 
     png = agent_view_png(c.canvas.to_svg(), c.canvas.size)
     b.looks_used += 1
-    c.looks.append(png)
+    c.looks.append(Look(png, (focus or "").strip()[:MAX_NOTE], len(c.canvas)))
     url = data_url(png)
     await c.emit({"type": "look", "key": ctx.tool_call_id, "n": b.looks_used,
                   "focus": focus, "image": url})

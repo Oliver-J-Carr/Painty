@@ -207,7 +207,8 @@ class Studio:
         req = SaveRequest(
             canvas=c.canvas, prompt=c.prompt, title=title, note=note, ending=ending,
             settings=settings_dict(c.settings), shapes_budget=c.budget.shapes_total,
-            looks_budget=c.budget.looks_total, looks=list(c.looks), top_ups=c.budget.top_ups,
+            looks_budget=c.budget.looks_total, looks=list(c.looks), stages=list(c.stages),
+            top_ups=c.budget.top_ups,
             input_tokens=self.input_tokens, cached_tokens=self.cached_tokens,
             output_tokens=self.output_tokens, reasoning_tokens=self.reasoning_tokens,
             started_at=c.started_at,
