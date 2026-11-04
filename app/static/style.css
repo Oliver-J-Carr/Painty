@@ -194,7 +194,8 @@ button, input, select { font: inherit; }
   display: flex; flex-direction: column;
 }
 .overlay-inner .drawer-head { flex: none; padding-bottom: 8px; border-bottom: 1px solid var(--paper-edge); }
-.gallery-body { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 6px 24px 0; }
+/* A stable gutter: if a scrollbar does appear, nothing shifts sideways to make room. */
+.gallery-body { flex: 1; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; padding: 16px 6px 24px 0; }
 /* Each card spans two rows of the shared grid (image, then text) through subgrid, so every image
    in a band lines up and only the text row below it varies in height. */
 .gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); column-gap: 18px; row-gap: 0; }
@@ -224,15 +225,22 @@ button, input, select { font: inherit; }
 /* The stage viewer: a big preview, a caption and a strip of every stage. Stages Painty looked
    at get a cadmium border and an eye badge, so they stand out at thumbnail size. */
 .stage-viewer { min-width: 0; }
-.stage-preview { display: block; width: 100%; padding: 0; border: 0; background: none; cursor: zoom-in; }
+/* Sized to the window, so the preview and the stage strip fit without scrolling. */
+.stage-preview {
+  display: block; width: min(100%, max(240px, calc(100vh - 320px))); margin: 0 auto;
+  padding: 0; border: 0; background: none; cursor: zoom-in;
+}
 .stage-preview .big { display: block; }
-.stage-caption { margin: 10px 0 0; font-weight: 600; }
-.stage-saw { margin: 4px 0 0; display: flex; align-items: center; gap: 8px; font-variation-settings: "CASL" 1; }
-.stage-views { display: inline-flex; margin-top: 8px; border-radius: var(--radius); box-shadow: inset 0 0 0 1.5px var(--graphite); overflow: hidden; }
+/* One short line under the strip, the same on every stage, so the layout never jumps.
+   The full notes are in the enlarged view. */
+.stage-info-row { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; min-height: 34px; margin-top: 6px; }
+.stage-caption { margin: 0; display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.stage-views { display: inline-flex; flex: none; border-radius: var(--radius); box-shadow: inset 0 0 0 1.5px var(--graphite); overflow: hidden; }
 .stage-view { border: 0; background: transparent; color: var(--graphite); padding: 5px 12px; font-weight: 600; font-size: 14px; cursor: pointer; }
 .stage-view + .stage-view { box-shadow: inset 1.5px 0 0 var(--graphite); }
 .stage-view[aria-pressed="true"] { background: var(--graphite); color: var(--paper); }
-.stage-strip { display: flex; gap: 14px; overflow-x: auto; padding: 14px 10px 10px 8px; margin-top: 4px; }
+.stage-views:empty { display: none; }
+.stage-strip { display: flex; gap: 14px; overflow-x: auto; padding: 14px 10px 6px 8px; margin-top: 2px; }
 .stage-thumb {
   position: relative; flex: none; width: 76px; padding: 0; border: 0; background: none; cursor: pointer;
   color: var(--graphite-soft); font-size: 12px; font-weight: 600; text-align: center;
@@ -250,9 +258,18 @@ button, input, select { font: inherit; }
 .eye-badge svg { width: 15px; height: 15px; }
 .stage-thumb .eye-badge { position: absolute; top: -8px; right: -8px; box-shadow: 0 0 0 2px var(--paper); }
 
-.lightbox-figure { margin: auto; max-width: min(720px, 100%); }
+/* Darker than the gallery's backdrop, so the notes under the picture are easy to read. */
+#lightbox { background: rgba(6, 14, 11, 0.93); }
+/* Sized so the caption and notes fit under the picture without scrolling. */
+.lightbox-figure { margin: auto; width: min(720px, 100%, max(280px, calc(100vh - 260px))); }
 .lightbox-figure img { display: block; width: 100%; border-radius: 3px; }
-.lightbox-figure figcaption { color: var(--paper); margin-top: 10px; text-align: center; }
+.lightbox-figure figcaption { color: var(--paper); margin-top: 12px; text-align: center; }
+.lightbox-figure figcaption p { margin: 0; }
+.lightbox-heading { font-weight: 600; }
+.lightbox-note { margin-top: 6px !important; font-size: 17px; font-variation-settings: "CASL" 1; }
+.lightbox-look { margin-top: 8px !important; display: flex; align-items: center; justify-content: center; gap: 8px; font-variation-settings: "CASL" 1; }
+.lightbox-look.current { color: var(--cadmium); }
+.lightbox-muted { margin-top: 6px !important; color: rgba(247, 247, 242, 0.65); }
 
 .toast {
   position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 40;

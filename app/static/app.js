@@ -401,23 +401,54 @@ function stageViewer(m, base) {
   const wrap = el("div", "stage-viewer");
   const big = el("button", "stage-preview");
   big.type = "button";
+  big.title = "Enlarge, with Painty's notes";
   const bigImg = el("img", "big");
   big.appendChild(bigImg);
+  const strip = el("div", "stage-strip");
+  // One short line under the strip, the same height on every stage, so nothing jumps.
+  // The full story (Painty's note, what it looked for) is in the enlarged view.
   const caption = el("p", "stage-caption");
-  const sawLine = el("p", "stage-saw");
   const views = el("div", "stage-views");
   views.setAttribute("role", "group");
   views.setAttribute("aria-label", "Which picture to show");
-  const strip = el("div", "stage-strip");
-  wrap.append(big, caption, sawLine, views, strip);
+  const infoRow = el("div", "stage-info-row");
+  infoRow.append(caption, views);
+  wrap.append(big, strip, infoRow);
 
   let current = stages.length - 1;
-  let captionText = "";
+  let shownLook = null; // the look on show in the preview, or null for the painting
 
-  function showImage(url, alt, text) {
-    bigImg.src = url;
-    bigImg.alt = alt;
-    captionText = text;
+  const stageName = (st) => (st === final ? `Final (stage ${st.n} of ${total})`
+    : st.n === 0 ? "Blank canvas" : `Stage ${st.n} of ${total}`);
+  const seenAt = (st) => st.looks.map((n) => looks.get(n) || { n, focus: "" });
+
+  // Everything about the stage, for under the enlarged picture.
+  function details(st) {
+    const out = [];
+    if (st.n > 0 && st.note) out.push(el("p", "lightbox-note", `“${st.note}”`));
+    const seen = seenAt(st);
+    for (const l of seen) {
+      const line = el("p", "lightbox-look");
+      if (shownLook && l.n === shownLook.n) line.classList.add("current");
+      const who = seen.length > 1 ? `Look ${l.n}: Painty looked here` : "Painty looked here";
+      line.append(eyeBadge(), el("span", "", `${who}${l.focus ? `, checking “${l.focus}”` : ""}`));
+      out.push(line);
+    }
+    if (!seen.length && st.n > 0) out.push(el("p", "lightbox-muted", "Painty didn’t look at this stage."));
+    return out;
+  }
+
+  function show(look) {
+    const st = stages[current];
+    shownLook = look;
+    for (const b of views.children) b.setAttribute("aria-pressed", String(b.look === look));
+    if (look) {
+      bigImg.src = `${base}/looks/look-${look.n}.png`;
+      bigImg.alt = `What Painty saw on look ${look.n}`;
+    } else {
+      bigImg.src = src(st);
+      bigImg.alt = `${m.title}, ${stageName(st).toLowerCase()}`;
+    }
   }
 
   function select(i) {
@@ -426,38 +457,21 @@ function stageViewer(m, base) {
     for (const [j, b] of [...strip.children].entries()) b.setAttribute("aria-pressed", String(j === current));
     strip.children[current].scrollIntoView({ block: "nearest", inline: "nearest" });
 
-    const name = st === final ? `Final (stage ${st.n} of ${total})`
-      : st.n === 0 ? "Blank canvas" : `Stage ${st.n} of ${total}`;
-    const note = st.n > 0 && st.note ? ` · “${st.note}”` : "";
-    caption.textContent = `${name} · ${shapeSpan(st)}${note}`;
-    showImage(src(st), `${m.title}, ${name.toLowerCase()}`, `${name}: ${shapeSpan(st)}`);
-
-    const seen = st.looks.map((n) => looks.get(n) || { n, focus: "" });
-    sawLine.hidden = seen.length === 0;
-    views.hidden = seen.length === 0;
+    const seen = seenAt(st);
+    caption.replaceChildren(...(seen.length ? [eyeBadge()] : []),
+      el("span", "", `${stageName(st)} · ${shapeSpan(st)}`));
     views.replaceChildren();
-    if (!seen.length) return;
-    sawLine.replaceChildren(eyeBadge(), document.createTextNode(seen.length === 1
-      ? `Painty looked here${seen[0].focus ? `: “${seen[0].focus}”` : ""}`
-      : `Painty looked here ${seen.length} times`));
-
-    const options = [["Painting", null], ...seen.map((l) => [seen.length === 1 ? "What Painty saw" : `Look ${l.n}`, l])];
-    for (const [text, look] of options) {
-      const b = el("button", "stage-view", text);
-      b.type = "button";
-      b.setAttribute("aria-pressed", String(look === null));
-      b.addEventListener("click", () => {
-        for (const other of views.children) other.setAttribute("aria-pressed", String(other === b));
-        if (look) {
-          showImage(`${base}/looks/look-${look.n}.png`, `What Painty saw on look ${look.n}`,
-            `Look ${look.n}${look.focus ? `: ${look.focus}` : ""}`);
-          if (seen.length > 1) sawLine.lastChild.textContent = `Painty looked here${look.focus ? `: “${look.focus}”` : ""}`;
-        } else {
-          select(current);
-        }
-      });
-      views.appendChild(b);
+    if (seen.length) {
+      const options = [["Painting", null], ...seen.map((l) => [seen.length === 1 ? "What Painty saw" : `Look ${l.n}`, l])];
+      for (const [text, look] of options) {
+        const b = el("button", "stage-view", text);
+        b.type = "button";
+        b.look = look;
+        b.addEventListener("click", () => show(look));
+        views.appendChild(b);
+      }
     }
+    show(null);
   }
 
   stages.forEach((st, i) => {
@@ -477,8 +491,13 @@ function stageViewer(m, base) {
     strip.appendChild(b);
   });
 
-  big.setAttribute("aria-label", "Enlarge");
-  big.addEventListener("click", () => openLightbox(bigImg.src, captionText));
+  big.setAttribute("aria-label", "Enlarge, with Painty's notes");
+  big.addEventListener("click", () => {
+    const st = stages[current];
+    const heading = shownLook ? `What Painty saw on look ${shownLook.n} · ${stageName(st)}`
+      : `${stageName(st)} · ${shapeSpan(st)}`;
+    openLightbox(bigImg.src, heading, details(st));
+  });
   stepStage = (delta) => select(current + delta);
   select(current);
   return wrap;
@@ -567,10 +586,11 @@ $("open-gallery").addEventListener("click", () => openGallery());
 $("close-gallery").addEventListener("click", () => { $("gallery").hidden = true; });
 
 // ------------------------------------------------------------------ lightbox, toast, keys
-function openLightbox(src, caption) {
+// extra: more lines (nodes) under the caption, such as a stage's notes.
+function openLightbox(src, caption, extra = []) {
   $("lightbox-img").src = src;
   $("lightbox-img").alt = caption;
-  $("lightbox-caption").textContent = caption;
+  $("lightbox-caption").replaceChildren(el("p", "lightbox-heading", caption), ...extra);
   $("lightbox").hidden = false;
 }
 $("lightbox").addEventListener("click", () => { $("lightbox").hidden = true; });
