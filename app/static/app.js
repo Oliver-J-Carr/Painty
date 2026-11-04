@@ -19,7 +19,9 @@ let state = "connecting";
 let shapesOnCanvas = 0;
 let savedId = null;
 
-// ------------------------------------------------------------------ status line
+// ------------------------------------------------------------------ prompt box hint
+// There's no status line: while painting (or reconnecting) the disabled prompt box's
+// placeholder says what's happening instead.
 const PHASES = {
   thinking: "Thinking…",
   paint: "Painting…",
@@ -36,9 +38,10 @@ const STATES = {
   error: "The drawing failed.",
 };
 
-function setStatus(text, dataState = state) {
-  $("status").textContent = text;
-  $("status").dataset.state = dataState;
+const PROMPT_HINT = $("prompt").placeholder;
+
+function setStatus(text) {
+  $("prompt").placeholder = text || PROMPT_HINT;
 }
 
 // ------------------------------------------------------------------ canvas
@@ -165,7 +168,7 @@ function tokenText({ input = 0, cached, output = 0, reasoning }) {
 function applyState(e) {
   state = e.state;
   const painting = state === "painting";
-  setStatus(STATES[state] || state);
+  setStatus(painting ? PHASES.thinking : "");
 
   $("prompt").disabled = painting;
   $("paint").hidden = painting;
@@ -216,7 +219,7 @@ function connect() {
   ws.addEventListener("message", (msg) => handle(JSON.parse(msg.data)));
   ws.addEventListener("close", () => {
     state = "connecting";
-    setStatus("Disconnected. Reconnecting…", "connecting");
+    setStatus("Disconnected. Reconnecting…");
     $("prompt").disabled = true;
     $("paint").disabled = true;
     $("stop").hidden = true;
@@ -240,7 +243,7 @@ function handle(e) {
       $("paint").disabled = false;
       break;
     case "status": applyState(e); break;
-    case "phase": if (state === "painting") setStatus(PHASES[e.phase] || "Painting…", "painting"); break;
+    case "phase": if (state === "painting") setStatus(PHASES[e.phase] || "Painting…"); break;
     case "canvas_reset": onCanvasReset(e); break;
     case "shapes": queueShapes(e.shapes); break;
     case "look": onLook(e); break;
@@ -329,6 +332,8 @@ $("close-settings").addEventListener("click", () => toggleSettings(false));
 async function openGallery(focusId = null) {
   $("gallery").hidden = false;
   $("gallery-detail").hidden = true;
+  $("gallery-back").hidden = true;
+  stepStage = null;
   $("gallery-grid").hidden = false;
   $("gallery-body").scrollTop = 0;
   let items = [];
@@ -413,7 +418,9 @@ function stageViewer(m, base) {
   views.setAttribute("aria-label", "Which picture to show");
   const infoRow = el("div", "stage-info-row");
   infoRow.append(caption, views);
-  wrap.append(big, strip, infoRow);
+  const frame = el("div", "stage-frame"); // the space the preview fills
+  frame.appendChild(big);
+  wrap.append(frame, strip, infoRow);
 
   let current = stages.length - 1;
   let shownLook = null; // the look on show in the preview, or null for the painting
@@ -509,6 +516,7 @@ function showDetail(m) {
   const s = m.settings || {};
   const d = $("gallery-detail");
   d.replaceChildren();
+  d.classList.toggle("has-stages", Boolean(m.stages?.length));
 
   const left = m.stages?.length ? stageViewer(m, base) : el("div");
   if (!m.stages?.length) { // older paintings: no stage snapshots
@@ -519,15 +527,7 @@ function showDetail(m) {
   }
 
   const right = el("div");
-  const back = el("button", "ghost-dark back", "Back to all paintings");
-  back.type = "button";
-  back.addEventListener("click", () => {
-    stepStage = null;
-    d.hidden = true;
-    $("gallery-grid").hidden = false;
-    $("gallery-body").scrollTop = gridScroll;
-  });
-  right.append(back, el("h3", "", m.title), el("p", "painting-note", m.note || ""));
+  right.append(el("h3", "", m.title), el("p", "painting-note", m.note || ""));
 
   const endings = { finished: "Painty finished it", ended: "Painty stopped without finishing", saved: "You saved it" };
   const rows = [
@@ -579,10 +579,22 @@ function showDetail(m) {
   $("gallery-grid").hidden = true;
   d.hidden = false;
   $("gallery-body").scrollTop = 0;
-  back.focus();
+  $("gallery-back").hidden = false;
+  $("gallery-back").focus();
+}
+
+// From a painting back to the grid, where it was scrolled to.
+function backToGrid() {
+  stepStage = null;
+  $("gallery-detail").hidden = true;
+  $("gallery-back").hidden = true;
+  $("gallery-grid").hidden = false;
+  $("gallery-body").scrollTop = gridScroll;
+  $("close-gallery").focus();
 }
 
 $("open-gallery").addEventListener("click", () => openGallery());
+$("gallery-back").addEventListener("click", backToGrid);
 $("close-gallery").addEventListener("click", () => { $("gallery").hidden = true; });
 
 // ------------------------------------------------------------------ lightbox, toast, keys
@@ -615,7 +627,9 @@ document.addEventListener("keydown", (ev) => {
     return;
   }
   if (ev.key !== "Escape") return;
+  // Escape steps back one level: lightbox, then painting, then the gallery itself.
   if (!$("lightbox").hidden) $("lightbox").hidden = true;
+  else if (!$("gallery").hidden && !$("gallery-detail").hidden) backToGrid();
   else if (!$("gallery").hidden) $("gallery").hidden = true;
   else if (!$("settings").hidden) toggleSettings(false);
 });

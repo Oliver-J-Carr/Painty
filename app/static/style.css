@@ -54,12 +54,6 @@ button, input, select { font: inherit; }
 .brand { display: flex; align-items: center; gap: 10px; }
 .brand-name { font: 600 28px/1 var(--pixel); color: var(--cadmium); letter-spacing: 0.02em; }
 .brand-shapes { width: 54px; height: 14px; }
-.status { margin: 0; color: rgba(247, 247, 242, 0.78); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.status[data-state="painting"]::before {
-  content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: 50%;
-  background: var(--cadmium); animation: pulse 1s ease-in-out infinite; vertical-align: 1px;
-}
-@keyframes pulse { 50% { opacity: 0.25; } }
 .topbar-actions { display: flex; gap: 8px; }
 
 .ghost, .ghost-dark, .primary, .stop, .close {
@@ -84,13 +78,11 @@ button, input, select { font: inherit; }
   padding: 4px 24px 24px;
   flex: 1; min-height: 0;
 }
-/* The easel holds a scrolling area and, below it, the prompt box. They are siblings, so scrolled
-   content ends at the box's edge instead of passing behind it, and the box needs no background. */
 .easel { display: flex; flex-direction: column; align-items: center; min-height: 0; }
 .easel-scroll { flex: 1; min-height: 0; width: 100%; overflow-y: auto; display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 8px 0; }
 .canvas-wrap {
-  /* Leave room below for the meters, a result card and the prompt box. */
-  width: min(100%, max(300px, calc(100vh - 390px)), 640px);
+  /* Leave room below for the meters and a result card. */
+  width: min(100%, max(300px, calc(100vh - 345px)), 640px);
   aspect-ratio: 1;
   flex: none;
   padding: 10px;
@@ -130,8 +122,8 @@ button, input, select { font: inherit; }
 .painting-title { margin: 0; font-size: 22px; font-weight: 700; font-variation-settings: "CASL" 1; flex: 1 1 auto; }
 .painting-note { margin: 4px 0 0; font-variation-settings: "CASL" 1; max-height: 6em; overflow-y: auto; }
 
-/* ---------- composer ---------- */
-.composer { flex: none; display: flex; gap: 10px; width: min(100%, 640px); padding: 14px 0 8px; }
+/* ---------- composer (in the top bar) ---------- */
+.composer { flex: 1; min-width: 0; max-width: 760px; margin: 0 auto; display: flex; gap: 10px; }
 .composer input {
   flex: 1; min-width: 0; padding: 11px 14px; border-radius: var(--radius);
   border: 0; background: var(--paper); color: var(--graphite);
@@ -218,17 +210,26 @@ button, input, select { font: inherit; }
 .gallery-detail dd { margin: 0; }
 .gallery-detail .looks { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
 .gallery-detail .looks img { width: 100%; box-shadow: 0 0 0 1px var(--paper-edge); cursor: zoom-in; }
-.gallery-detail .back { margin-bottom: 14px; }
+.head-actions { display: flex; align-items: center; gap: 6px; }
+.head-actions .back { padding: 5px 12px; }
 .gallery-detail .files { display: flex; gap: 14px; font-size: 14px; }
 .gallery-detail a { color: var(--mat); font-weight: 600; }
 
 /* The stage viewer: a big preview, a caption and a strip of every stage. Stages Painty looked
    at get a cadmium border and an eye badge, so they stand out at thumbnail size. */
 .stage-viewer { min-width: 0; }
-/* Sized to the window, so the preview and the stage strip fit without scrolling. */
-.stage-preview {
-  display: block; width: min(100%, max(240px, calc(100vh - 320px))); margin: 0 auto;
-  padding: 0; border: 0; background: none; cursor: zoom-in;
+.stage-frame { display: flex; justify-content: center; }
+.stage-preview { display: block; width: 100%; padding: 0; border: 0; background: none; cursor: zoom-in; }
+/* Side by side, the detail fills the gallery window exactly: the strip and caption take the
+   height they need and the preview, a square, takes what is left. So the window never scrolls,
+   at any zoom; a long details column scrolls on its own. */
+@media (min-width: 861px) {
+  .gallery-detail.has-stages { height: 100%; grid-template-rows: minmax(0, 1fr); }
+  .gallery-detail.has-stages > :last-child { min-height: 0; overflow-y: auto; padding-right: 4px; }
+  .stage-viewer { height: 100%; display: flex; flex-direction: column; }
+  .stage-frame { flex: 1; min-height: 200px; container-type: size; }
+  .stage-preview { width: min(100cqw, 100cqh); }
+  .stage-strip, .stage-info-row { flex: none; }
 }
 .stage-preview .big { display: block; }
 /* One short line under the strip, the same on every stage, so the layout never jumps.
@@ -281,7 +282,7 @@ button, input, select { font: inherit; }
 /* ---------- small screens: stack the feed under the easel ---------- */
 @media (max-width: 860px) {
   .topbar { flex-wrap: wrap; padding: 12px var(--gutter); gap: 10px 16px; }
-  .status { order: 3; flex-basis: 100%; }
+  .composer { order: 3; flex-basis: 100%; max-width: none; }
   html, body { height: auto; min-height: 100%; }
   .studio { grid-template-columns: 1fr; grid-template-rows: none; flex: none; padding: 4px var(--gutter) var(--gutter); }
   .easel-scroll { overflow: visible; }
@@ -293,6 +294,5 @@ button, input, select { font: inherit; }
 
 @media (prefers-reduced-motion: reduce) {
   .canvas g[data-n] { animation: none; }
-  .status[data-state="painting"]::before { animation: none; }
   .meter-fill { transition: none; }
 }

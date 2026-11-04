@@ -20,7 +20,13 @@
         <rect x="41" y="1" width="12" height="12" fill="#2f7fd8"/>
       </svg>
     </div>
-    <p class="status" id="status" data-state="connecting">Connecting…</p>
+    <form class="composer" id="composer" autocomplete="off">
+      <label for="prompt" class="visually-hidden">What should Painty paint?</label>
+      <input id="prompt" name="prompt" type="text" maxlength="500"
+             placeholder="Try: a ginger cat sitting in the sun" disabled>
+      <button type="submit" class="primary" id="paint" disabled>Paint</button>
+      <button type="button" class="stop" id="stop" hidden>Stop</button>
+    </form>
     <nav class="topbar-actions">
       <button type="button" class="ghost" id="open-gallery">Gallery</button>
       <button type="button" class="ghost" id="open-settings" aria-expanded="false" aria-controls="settings">Settings</button>
@@ -77,13 +83,6 @@
         </div>
       </div>
 
-      <form class="composer" id="composer" autocomplete="off">
-        <label for="prompt" class="visually-hidden">What should Painty paint?</label>
-        <input id="prompt" name="prompt" type="text" maxlength="500"
-               placeholder="Try: a ginger cat sitting in the sun" disabled>
-        <button type="submit" class="primary" id="paint" disabled>Paint</button>
-        <button type="button" class="stop" id="stop" hidden>Stop</button>
-      </form>
     </section>
 
     <aside class="feed" aria-label="Agent activity">
@@ -126,7 +125,10 @@
     <div class="overlay-inner">
       <div class="drawer-head">
         <h2 id="gallery-title">Gallery</h2>
-        <button type="button" class="close" id="close-gallery" aria-label="Close gallery">×</button>
+        <div class="head-actions">
+          <button type="button" class="ghost-dark back" id="gallery-back" hidden>← All paintings</button>
+          <button type="button" class="close" id="close-gallery" aria-label="Close gallery">×</button>
+        </div>
       </div>
       <div class="gallery-body" id="gallery-body">
         <div id="gallery-grid" class="gallery-grid"></div>

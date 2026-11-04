@@ -127,7 +127,7 @@ docker image prune
   - `look`: `key`, `n`, `focus` and `image` (a PNG data URL of exactly what the agent saw).
   - `budget`: shapes and looks used, total and left, and `top_ups`.
   - `status`: `state` of `painting`, `paused` (`reason`, `top_up`), `finished` (`title`, `note`, `ending`, `saved_id`, `meta`, `tokens`), `stopped` or `error` (`reason`).
-  - `phase`: `thinking`, `paint`, `look` or `finish`, for the status line.
+  - `phase`: `thinking`, `paint`, `look` or `finish`, shown in the prompt box's placeholder while painting.
   - `activity`: feed entries. Tool entries share a `key` and go from `running` to `done` or `error`.
   - `settings`: the current settings after an update.
   - `error`: a short message for a toast.
