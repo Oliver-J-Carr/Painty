@@ -80,9 +80,12 @@ button, input, select { font: inherit; }
 }
 .easel { display: flex; flex-direction: column; align-items: center; min-height: 0; }
 .easel-scroll { flex: 1; min-height: 0; width: 100%; overflow-y: auto; display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 8px 0; }
+/* The canvas area takes whatever height the meters and any result card leave, and the canvas is
+   the biggest square that fits in it. So a card appearing shrinks the canvas a little instead of
+   making the column scroll; it only scrolls once the canvas would drop below 300 px. */
+.canvas-area { width: 100%; display: flex; justify-content: center; flex: none; }
 .canvas-wrap {
-  /* Leave room below for the meters and a result card. */
-  width: min(100%, max(300px, calc(100vh - 345px)), 640px);
+  width: min(100%, 640px);
   aspect-ratio: 1;
   flex: none;
   padding: 10px;
@@ -91,6 +94,11 @@ button, input, select { font: inherit; }
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.4) inset, 0 18px 30px -12px rgba(8, 26, 19, 0.65), 0 2px 4px rgba(8, 26, 19, 0.35);
 }
 .canvas { display: block; width: 100%; height: 100%; }
+@media (min-width: 861px) {
+  .canvas-area { flex: 1 0 300px; min-height: 300px; container-type: size; }
+  .canvas-wrap { width: min(100cqw, 100cqh, 640px); }
+  .easel-scroll > :not(.canvas-area) { flex: none; }
+}
 .canvas g[data-n] { animation: lay 0.22s ease-out both; }
 @keyframes lay { from { opacity: 0; } }
 
