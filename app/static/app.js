@@ -260,6 +260,7 @@ function handle(e) {
       clearFeed();
       $("prompt-shown").hidden = true;
       setupSettings(e.options, e.settings);
+      configuredModels = e.options.models;
       canvases = e.canvases;
       for (const [name, [w, h]] of Object.entries(canvases)) {
         const size = document.querySelector(`[data-size="${name}"]`);
@@ -531,11 +532,136 @@ async function openGallery(focusId = null) {
   } catch {
     toast("Couldn't load the gallery.", "error");
   }
-  renderGallery(items);
+  galleryItems = items;
+  assignModelColours(items);
+  renderGallery();
   const focus = focusId && items.find((m) => m.id === focusId);
   if (focus) showDetail(focus);
   else $("close-gallery").focus();
 }
+
+// ---- model colours
+// Each model gets its own colour, so you can tell at a glance which model made which painting.
+// The models in PAINTY_MODELS come first, in their order, then any others in the gallery
+// alphabetically, so the colours stay put while the model list stays the same.
+const MODEL_COLOURS = ["#8ecae6", "#f4a3a8", "#b5e48c", "#cdb4db", "#ffd166",
+  "#8fd9c1", "#f7a072", "#a9b8f0", "#d9c2a3", "#e7a6d9"];
+let configuredModels = []; // PAINTY_MODELS, from hello
+let modelColours = new Map();
+
+function assignModelColours(items) {
+  const inGallery = new Set(items.map((m) => m.settings?.model).filter(Boolean));
+  const others = [...inGallery].filter((m) => !configuredModels.includes(m)).sort();
+  const order = [...configuredModels, ...others];
+  modelColours = new Map(order.map((m, i) => [m, MODEL_COLOURS[i % MODEL_COLOURS.length]]));
+}
+
+function modelPill(model) {
+  const pill = el("span", "model-pill", model || "unknown model");
+  const colour = modelColours.get(model);
+  if (colour) pill.style.setProperty("--model", colour);
+  return pill;
+}
+
+// ---- favourites
+const STAR_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.8l2.8 5.9 6.4.8-4.7 4.4 1.2 6.4L12 17.1l-5.7 3.2 1.2-6.4-4.7-4.4 6.4-.8z" stroke-linejoin="round"/></svg>';
+
+function starButton(m, cls = "") {
+  const b = el("button", `star ${cls}`.trim());
+  b.type = "button";
+  b.dataset.id = m.id;
+  b.innerHTML = STAR_SVG;
+  syncStar(b, m);
+  b.addEventListener("click", (ev) => { ev.stopPropagation(); toggleFavourite(m); });
+  return b;
+}
+
+function syncStar(b, m) {
+  const on = Boolean(m.favourite);
+  b.setAttribute("aria-pressed", String(on));
+  b.setAttribute("aria-label", on ? "Remove from favourites" : "Add to favourites");
+  b.title = on ? "Favourite: click to remove" : "Add to favourites";
+}
+
+async function toggleFavourite(m) {
+  const want = !m.favourite;
+  m.favourite = want; // show it straight away, and put it back if saving fails
+  showFavourite(m);
+  try {
+    const res = await fetch(`/api/gallery/${encodeURIComponent(m.id)}/favourite`, {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ favourite: want }),
+    });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || res.statusText);
+  } catch (err) {
+    m.favourite = !want;
+    showFavourite(m);
+    toast(`Couldn't save that favourite. ${err.message}`, "error");
+  }
+}
+
+function showFavourite(m) {
+  for (const b of document.querySelectorAll(".star")) if (b.dataset.id === m.id) syncStar(b, m);
+  // Showing favourites only: an unstarred painting leaves the grid (or comes back).
+  if (!$("gallery-grid").hidden) renderGallery({ keepScroll: true });
+  else renderFilters();
+}
+
+// ---- filters
+// No model chosen means every model. Kept while the page is open.
+let galleryItems = [];
+const galleryFilter = { models: new Set(), favourites: false };
+
+function shown(m) {
+  if (galleryFilter.favourites && !m.favourite) return false;
+  return !galleryFilter.models.size || galleryFilter.models.has(m.settings?.model);
+}
+
+function filterChip(label, pressed, onClick, colour) {
+  const b = el("button", "filter-chip");
+  b.type = "button";
+  b.setAttribute("aria-pressed", String(pressed));
+  if (colour) {
+    const dot = el("span", "chip-dot");
+    dot.style.setProperty("--model", colour);
+    b.appendChild(dot);
+  }
+  b.append(label);
+  b.addEventListener("click", onClick);
+  return b;
+}
+
+function renderFilters() {
+  const counts = new Map();
+  for (const m of galleryItems) counts.set(m.settings?.model, (counts.get(m.settings?.model) || 0) + 1);
+  for (const name of [...galleryFilter.models]) if (!counts.has(name)) galleryFilter.models.delete(name);
+
+  const chips = [filterChip("All models", galleryFilter.models.size === 0, () => {
+    galleryFilter.models.clear();
+    renderGallery();
+  })];
+  for (const [model, colour] of modelColours) {
+    if (!counts.has(model)) continue;
+    chips.push(filterChip(`${model} (${counts.get(model)})`, galleryFilter.models.has(model), () => {
+      if (galleryFilter.models.has(model)) galleryFilter.models.delete(model);
+      else galleryFilter.models.add(model);
+      renderGallery();
+    }, colour));
+  }
+  $("filter-models").replaceChildren(...chips);
+
+  const favs = galleryItems.filter((m) => m.favourite).length;
+  const fav = $("filter-favourites");
+  fav.innerHTML = STAR_SVG;
+  fav.append(` Favourites (${favs})`);
+  fav.setAttribute("aria-pressed", String(galleryFilter.favourites));
+  $("gallery-filters").hidden = galleryItems.length === 0 || $("gallery-grid").hidden;
+}
+
+$("filter-favourites").addEventListener("click", () => {
+  galleryFilter.favourites = !galleryFilter.favourites;
+  renderGallery();
+});
 
 const PROMPT_PREVIEW_CHARS = 80;
 function preview(text) {
@@ -554,16 +680,25 @@ function promptOf(m) {
 
 function summary(m) {
   const s = m.settings || {};
-  return `${s.model || "?"}, eyes ${s.vision ? "on" : "off"}, ${m.shapes_used} shapes`;
+  return `eyes ${s.vision ? "on" : "off"}, ${m.shapes_used} shapes`; // the model is its own pill
 }
 
-function renderGallery(items) {
+function renderGallery({ keepScroll = false } = {}) {
   const grid = $("gallery-grid");
+  const scroll = $("gallery-body").scrollTop;
   grid.replaceChildren();
+  renderFilters();
+  const items = galleryItems.filter(shown);
+  $("filter-count").textContent = items.length === galleryItems.length ? ""
+    : `Showing ${items.length} of ${galleryItems.length}`;
+  $("gallery-empty").textContent = galleryItems.length
+    ? "No paintings match these filters."
+    : "No paintings yet. Finished drawings are saved here automatically.";
   $("gallery-empty").hidden = items.length > 0;
   for (const m of items) {
-    const card = el("button", "gallery-card");
-    card.type = "button";
+    const card = el("article", "gallery-card");
+    const open = el("button", "card-open");
+    open.type = "button";
     const art = el("span", "card-art");
     const img = el("img", "card-painting");
     img.src = `/gallery/${encodeURIComponent(m.id)}/painting.png`;
@@ -578,11 +713,15 @@ function renderGallery(items) {
       art.appendChild(ref);
     }
     const text = el("div", "gallery-text");
-    text.append(el("h3", "", m.title), el("p", "gallery-prompt", preview(promptOf(m))), el("p", "gallery-meta", summary(m)));
-    card.append(art, text);
-    card.addEventListener("click", () => showDetail(m));
+    const meta = el("p", "gallery-meta");
+    meta.append(modelPill(m.settings?.model), ` ${summary(m)}`);
+    text.append(el("h3", "", m.title), el("p", "gallery-prompt", preview(promptOf(m))), meta);
+    open.append(art, text);
+    open.addEventListener("click", () => showDetail(m));
+    card.append(open, starButton(m, "card-star"));
     grid.appendChild(card);
   }
+  if (keepScroll) $("gallery-body").scrollTop = scroll;
 }
 
 let gridScroll = 0; // where the grid was scrolled to, restored by "Back to all paintings"
@@ -750,14 +889,16 @@ function showDetail(m) {
   }
 
   const right = el("div");
-  right.append(el("h3", "", m.title), el("p", "painting-note", m.note || ""));
+  const title = el("div", "detail-title");
+  title.append(el("h3", "", m.title), starButton(m));
+  right.append(title, el("p", "painting-note", m.note || ""));
 
   const endings = { finished: "Painty finished it", ended: "Painty stopped without finishing", saved: "You saved it" };
   const c = canvasOf(m);
   const rows = [
     ["Prompt", promptOf(m)],
     ["Canvas", `${c.shape[0].toUpperCase()}${c.shape.slice(1)}, ${c.width} × ${c.height}`],
-    ["Model", `${s.model} (effort: ${s.reasoning_effort || "default"})`],
+    ["Model", [modelPill(s.model), ` (effort: ${s.reasoning_effort || "default"})`]],
     ["Vision", s.vision ? "On" : "Off"],
     ["Shapes", `${m.shapes_used} of ${m.shapes_budget}`],
     ["Looks", `${m.looks_used} of ${m.looks_budget}`],
@@ -769,7 +910,11 @@ function showDetail(m) {
     ["Painted", new Date(m.created_at * 1000).toLocaleString("en-GB")],
   ];
   const dl = el("dl");
-  for (const [k, v] of rows) dl.append(el("dt", "", k), el("dd", "", v));
+  for (const [k, v] of rows) {
+    const dd = el("dd");
+    dd.append(...[].concat(v)); // text, or text and elements such as the model pill
+    dl.append(el("dt", "", k), dd);
+  }
   right.appendChild(dl);
 
   const files = el("p", "files");
@@ -803,6 +948,7 @@ function showDetail(m) {
   d.append(left, right);
   gridScroll = $("gallery-body").scrollTop;
   $("gallery-grid").hidden = true;
+  $("gallery-filters").hidden = true;
   d.hidden = false;
   $("gallery-body").scrollTop = 0;
   $("gallery-back").hidden = false;
@@ -815,6 +961,7 @@ function backToGrid() {
   $("gallery-detail").hidden = true;
   $("gallery-back").hidden = true;
   $("gallery-grid").hidden = false;
+  renderGallery(); // picks up a favourite changed on the painting's page
   $("gallery-body").scrollTop = gridScroll;
   $("close-gallery").focus();
 }

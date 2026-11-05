@@ -260,10 +260,49 @@ button, input, select, textarea { font: inherit; }
 /* Each card spans two rows of the shared grid (image, then text) through subgrid, so every image
    in a band lines up and only the text row below it varies in height. */
 .gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); column-gap: 18px; row-gap: 0; }
-.gallery-card {
+.gallery-card { position: relative; display: grid; grid-row: span 2; grid-template-rows: subgrid; padding: 0 0 20px; }
+/* The card's open button passes the two rows on, so the subgrid alignment still holds. */
+.card-open {
   display: grid; grid-row: span 2; grid-template-rows: subgrid; align-content: start;
-  border: 0; padding: 0 0 20px; background: none; text-align: left; cursor: pointer; color: inherit;
+  border: 0; padding: 0; background: none; text-align: left; cursor: pointer; color: inherit;
 }
+
+/* Filters: model chips (each with its colour) and favourites, above the grid. */
+.gallery-filters { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 0 2px; }
+.filter-chips { display: contents; }
+.filter-chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border: 0; border-radius: 999px;
+  background: transparent; color: var(--graphite); font-size: 13px; font-weight: 600; cursor: pointer;
+  box-shadow: inset 0 0 0 1.5px var(--paper-edge);
+}
+.filter-chip:hover { box-shadow: inset 0 0 0 1.5px var(--graphite-soft); }
+.filter-chip[aria-pressed="true"] { background: var(--graphite); color: var(--paper); box-shadow: none; }
+.chip-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--model); box-shadow: 0 0 0 1px rgba(35, 40, 42, 0.25); }
+.fav-chip { margin-left: 8px; }
+.fav-chip svg { width: 14px; height: 14px; fill: none; stroke: var(--cadmium-deep); stroke-width: 2.2; }
+.fav-chip[aria-pressed="true"] svg { fill: var(--cadmium); stroke: var(--cadmium); }
+.filter-count { margin-left: auto; color: var(--graphite-soft); font-size: 13px; }
+
+/* Each model's own colour, on its name. */
+.model-pill {
+  display: inline-block; padding: 0 7px; border-radius: 999px; background: var(--model, var(--paper-edge));
+  color: var(--graphite); font-weight: 600; line-height: 1.6; overflow-wrap: anywhere;
+}
+
+/* Favourite star: on a card's tile (top left) and beside the title on a painting's page. */
+.star { display: inline-grid; place-items: center; padding: 0; border: 0; cursor: pointer; background: none; color: var(--graphite-soft); }
+.star svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+.star[aria-pressed="true"] { color: var(--cadmium-deep); }
+.star[aria-pressed="true"] svg { fill: var(--cadmium); stroke: var(--cadmium-deep); }
+.star:hover svg { stroke: var(--graphite); }
+.card-star {
+  position: absolute; top: 6px; left: 6px; width: 32px; height: 32px; border-radius: 50%;
+  background: rgba(255, 255, 255, 0.85); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+}
+.card-star svg { width: 20px; height: 20px; }
+.detail-title { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.detail-title .star { flex: none; margin-top: 2px; }
+.detail-title .star svg { width: 26px; height: 26px; }
 /* Square tiles; a landscape or portrait painting sits inside its tile uncropped. */
 .card-art { position: relative; display: block; }
 .gallery-card .card-painting { display: block; width: 100%; aspect-ratio: 1; object-fit: contain; background: #ecece4; box-shadow: 0 0 0 1px var(--paper-edge), 0 6px 14px -8px rgba(0, 0, 0, 0.4); }

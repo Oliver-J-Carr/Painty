@@ -11,7 +11,8 @@ Each painting gets its own folder under DATA_DIR/gallery:
         looks/look-1.png  exactly what the agent saw on each look (grid included)
         reference.png     the reference image, if one was given (canvas size)
         reference-view.png  the reference as the agent saw it (grid included)
-        meta.json         prompt, title, note, canvas, settings, budgets used, tokens
+        meta.json         prompt, title, note, canvas, settings, budgets used, tokens,
+                          and favourite (set from the gallery; the only thing that changes later)
 
 Plain files, no database: easy to browse, copy, zip or delete by hand.
 """
@@ -29,6 +30,7 @@ from .context import Look, Stage
 from .view import render_png
 
 GALLERY_ZOOM = 2
+_ID = re.compile(r"[A-Za-z0-9._-]+")  # a painting's folder name
 
 
 @dataclass
@@ -127,6 +129,26 @@ class Gallery:
             "version": version,
         }
         (folder / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+        return meta
+
+    def set_favourite(self, painting_id: str, favourite: bool) -> dict | None:
+        """Mark a painting as a favourite (or not) in its meta.json, and return the meta.
+
+        None if there's no such painting. The id must be one folder name straight
+        under the gallery, so nothing outside it can be touched. Raises OSError if
+        the file can't be written.
+        """
+        if not _ID.fullmatch(painting_id or "") or painting_id in (".", ".."):
+            return None
+        path = self.root / painting_id / "meta.json"
+        try:
+            meta = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return None
+        meta["favourite"] = bool(favourite)
+        tmp = path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+        tmp.replace(path)  # atomic, so a crash never leaves a half-written meta.json
         return meta
 
     def list(self) -> list[dict]:

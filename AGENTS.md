@@ -59,7 +59,7 @@ docker image prune
 
 ## Architecture
 
-- `app/main.py`: FastAPI app, static files, `/api/gallery`, the `/gallery/...` files and the `/ws` WebSocket. One `Studio` per connection.
+- `app/main.py`: FastAPI app, static files, `/api/gallery` (and `PUT /api/gallery/{id}/favourite`), the `/gallery/...` files and the `/ws` WebSocket. One `Studio` per connection.
 - `app/studio.py`: the drawing lifecycle (start, pause, keep going, stop, save) and the traced agent runs. Runs in a background task so `stop` can cancel it.
 - `app/painter.py`: the painter agent, its dynamic instructions and `_stop_when_done` (the `tool_use_behavior` that ends a run on `finish` or an empty shape budget).
 - `app/tools.py`: the three function tools: `paint`, `look`, `finish`.

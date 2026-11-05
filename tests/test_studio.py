@@ -489,6 +489,36 @@ def test_settings_sent_just_before_paint_apply_to_that_drawing(tmp_path):
     assert types(events, "canvas_reset")[0]["settings"]["shape_budget"] == 7
 
 
+def test_paintings_can_be_starred_and_unstarred(tmp_path):
+    studio, _, events = make_studio(tmp_path, [[paint([rect(0, 0, 10, 10)], "c1")], [finish("c2")]])
+
+    async def go():
+        await studio.start("a dot")
+        await _wait(studio)
+    run(go)
+
+    gallery = studio.gallery
+    pid = types(events, "status")[-1]["saved_id"]
+    assert "favourite" not in gallery.list()[0]  # new paintings aren't starred
+    assert gallery.set_favourite(pid, True)["favourite"] is True
+    assert gallery.list()[0]["favourite"] is True
+    assert gallery.list()[0]["title"] == "Test"  # the rest of meta.json is kept
+    gallery.set_favourite(pid, False)
+    assert gallery.list()[0]["favourite"] is False
+    assert not list((tmp_path / "gallery" / pid).glob("*.tmp"))
+
+
+def test_starring_refuses_unknown_or_outside_ids(tmp_path):
+    root = tmp_path / "gallery"
+    (tmp_path / "secret").mkdir()
+    (tmp_path / "secret" / "meta.json").write_text("{}")
+    gallery = Gallery(root)
+    root.mkdir()
+    for bad in ("nope", "..", "../secret", "a/b", ""):
+        assert gallery.set_favourite(bad, True) is None
+    assert json.loads((tmp_path / "secret" / "meta.json").read_text()) == {}
+
+
 def test_vision_off_has_no_look_tool(tmp_path):
     steps = [[paint([rect(0, 0, 100, 100)], "c1")], [finish("c2")]]
     studio, model, _ = make_studio(tmp_path, steps, vision=False)

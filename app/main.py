@@ -10,9 +10,10 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 from . import __version__
 from .config import settings
@@ -57,6 +58,23 @@ async def healthz() -> dict:
 @app.get("/api/gallery")
 async def gallery_list() -> list[dict]:
     return app.state.gallery.list()
+
+
+class Favourite(BaseModel):
+    favourite: bool
+
+
+@app.put("/api/gallery/{painting_id}/favourite")
+async def gallery_favourite(painting_id: str, body: Favourite) -> dict:
+    """Star or unstar a painting. Saved in its meta.json."""
+    try:
+        meta = app.state.gallery.set_favourite(painting_id, body.favourite)
+    except OSError as exc:
+        log.warning("could not save favourite for %s: %s", painting_id, exc)
+        raise HTTPException(500, "Couldn't save that. Check that DATA_DIR is writable.") from exc
+    if meta is None:
+        raise HTTPException(404, "There's no painting with that id.")
+    return {"id": painting_id, "favourite": meta["favourite"]}
 
 
 @app.websocket("/ws")
