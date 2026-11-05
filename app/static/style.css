@@ -48,15 +48,20 @@ button, input, select, textarea { font: inherit; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* ---------- top bar ---------- */
+/* The top bar shares the studio's columns (same widths, gap and side padding), so the
+   New painting button sits centred over the canvas, and Gallery and Settings over the feed.
+   In the canvas column: brand on the left, the button in the middle, the status after it. */
 .topbar {
-  display: flex; align-items: center; gap: 20px;
+  display: grid; align-items: center;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 380px); gap: 24px;
   padding: 14px 24px;
 }
-.brand { display: flex; align-items: center; gap: 10px; }
+.topbar-easel { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 16px; min-width: 0; }
+.brand { display: flex; align-items: center; gap: 10px; justify-self: start; }
 .brand-name { font: 600 28px/1 var(--pixel); color: var(--cadmium); letter-spacing: 0.02em; }
 .brand-shapes { width: 54px; height: 14px; }
-.topbar-actions { display: flex; gap: 8px; }
-.topbar-main { flex: 1; min-width: 0; max-width: 760px; margin: 0 auto; display: flex; align-items: center; gap: 14px; }
+.topbar-actions { display: flex; gap: 8px; justify-self: end; }
+.topbar-main { display: flex; justify-content: center; }
 .topbar-main .primary, .topbar-main .stop { flex: none; padding: 10px 18px; }
 .status { margin: 0; min-width: 0; color: rgba(247, 247, 242, 0.85); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
@@ -352,8 +357,14 @@ button, input, select, textarea { font: inherit; }
 
 /* ---------- small screens: stack the feed under the easel ---------- */
 @media (max-width: 860px) {
-  .topbar { flex-wrap: wrap; padding: 12px var(--gutter); gap: 10px 16px; }
-  .topbar-main { order: 3; flex-basis: 100%; max-width: none; }
+  /* One column: brand and buttons on the first row, then New painting centred over the
+     canvas (which fills the width), then the status. */
+  .topbar { display: flex; flex-wrap: wrap; align-items: center; padding: 12px var(--gutter); gap: 10px 16px; }
+  .topbar-easel { display: contents; }
+  .topbar-actions { margin-left: auto; }
+  .topbar-main { order: 3; flex-basis: 100%; }
+  .status { order: 4; flex-basis: 100%; text-align: center; }
+  .status:empty { display: none; }
   html, body { height: auto; min-height: 100%; }
   .studio { grid-template-columns: 1fr; grid-template-rows: none; flex: none; padding: 4px var(--gutter) var(--gutter); }
   .easel-scroll { overflow: visible; }
