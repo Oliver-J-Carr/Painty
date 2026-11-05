@@ -10,6 +10,7 @@ It's an experiment in agent adaptation. The agent can't fall back on SVG or CSS 
 
 - **A custom paint system.** Shapes are drawn by "dragging" from one corner to another, like Microsoft Paint. They can be turned to any angle, filled with flat colour or linear and radial blends, given outlines, and made see-through for shading and highlights.
 - **Three canvas shapes.** Square (512 × 512), landscape (768 × 512) or portrait (512 × 768), chosen for each painting.
+- **Reference images.** Add a picture to a new painting. On its own, Painty tries to recreate it; with text, it uses it the way you say ("my dog as a cartoon", "a seascape in these colours"). The image picks the canvas shape for you.
 - **Paint is permanent.** Every shape covers what's beneath it. There's no undo or eraser, so mistakes are fixed by painting over them.
 - **The agent can see its own work.** Each look sends a PNG snapshot to the *same* model doing the painting, with a ruler and grid in its view to help it map what it sees to coordinates.
 - **Vision on or off.** Run the same prompt with and without sight and compare the results.
@@ -70,7 +71,7 @@ These are set on screen and saved between restarts. Changes apply to the next dr
 | Variable | Required | Purpose |
 |---|---|---|
 | `OPENAI_API_KEY` | Yes | Calls the models and uploads traces |
-| `PAINTY_MODELS` | No | Models offered in the settings panel, comma separated. The first is the default. They must accept image input for vision |
+| `PAINTY_MODELS` | No | Models offered in the settings panel, comma separated. The first is the default. They must accept image input for vision and reference images |
 | `TRACE_WORKFLOW_NAME` | No | Name shown for each drawing in OpenAI Traces |
 | `OPENAI_AGENTS_DISABLE_TRACING` | No | Set to `true` to stop sending traces to OpenAI |
 | `DATA_DIR` | No | Where the gallery and saved settings live. Defaults to `data` (`/srv/data` in the container, which is the `painty-data` volume) |
@@ -92,7 +93,6 @@ The design and the reasons behind it are in [`docs/PDD.md`](docs/PDD.md). In sho
 - More shapes or paint options, such as free three-point triangles or curves.
 - Deleting paintings from the gallery in the app.
 - A side-by-side comparison view for vision on and off.
-- Reference images: add a picture for Painty to recreate, or to use as a reference for something else.
 - Style suggestions when starting a painting.
 
 ## Licence

@@ -118,13 +118,28 @@ function followFeedEnd() {
   if (followFeed) feedList.scrollTop = feedList.scrollHeight;
 }
 
-function addEntry({ kind, text, detail, status, tool, key }) {
+// A picture in the feed (a look, or the reference image): a thumbnail that enlarges on click.
+function feedImage(src, alt, caption) {
+  const btn = el("button", "entry-look");
+  btn.type = "button";
+  btn.setAttribute("aria-label", `Enlarge: ${alt}`);
+  const img = el("img");
+  img.src = src;
+  img.alt = alt;
+  img.addEventListener("load", followFeedEnd);
+  btn.appendChild(img);
+  btn.addEventListener("click", () => openLightbox(src, caption));
+  return btn;
+}
+
+function addEntry({ kind, text, detail, status, tool, key, image }) {
   const li = el("li", "entry");
   li.dataset.kind = kind || "agent";
   li.dataset.status = status || "done";
   if (tool) li.dataset.tool = tool;
   li.appendChild(el("p", "entry-text", text || ""));
   if (detail) li.appendChild(el("p", "entry-detail", detail));
+  if (image) li.appendChild(feedImage(image, text || "Picture", text || ""));
   feedList.appendChild(li);
   $("feed-empty").hidden = true;
   if (key) entries.set(key, li);
@@ -143,16 +158,7 @@ function onActivity(e) {
 
 function onLook(e) {
   const li = entries.get(e.key) || addEntry({ kind: "tool", tool: "look", text: "👀 Looking at the canvas" });
-  const btn = el("button", "entry-look");
-  btn.type = "button";
-  btn.setAttribute("aria-label", `Enlarge look ${e.n}`);
-  const img = el("img");
-  img.src = e.image;
-  img.alt = `What Painty saw on look ${e.n}`;
-  img.addEventListener("load", followFeedEnd);
-  btn.appendChild(img);
-  btn.addEventListener("click", () => openLightbox(e.image, `Look ${e.n}: ${e.focus || ""}`));
-  li.appendChild(btn);
+  li.appendChild(feedImage(e.image, `What Painty saw on look ${e.n}`, `Look ${e.n}: ${e.focus || ""}`));
   followFeedEnd();
 }
 
@@ -214,9 +220,17 @@ function onCanvasReset(e) {
   clearFeed();
   savedId = null;
   setCanvasSize(e.width, e.height);
-  $("prompt-shown").textContent = `“${e.prompt}”`;
+  $("prompt-text").textContent = e.prompt ? `“${e.prompt}”` : "Recreating the reference image";
+  $("ref-shown").hidden = !e.reference;
+  shownReference = e.reference || null;
+  if (e.reference) $("ref-shown-img").src = e.reference;
   $("prompt-shown").hidden = false;
 }
+
+let shownReference = null; // the current drawing's reference image (a data URL), if any
+$("ref-shown").addEventListener("click", () => {
+  if (shownReference) openLightbox(shownReference, "The reference image");
+});
 
 // ------------------------------------------------------------------ socket
 function send(msg) {
@@ -270,14 +284,19 @@ function handle(e) {
 }
 
 // ------------------------------------------------------------------ new painting dialog
-// The canvas choice is kept between drawings (until the page reloads); the prompt is cleared.
+// The canvas choice is kept between drawings (until the page reloads); the prompt and
+// reference image are cleared once a painting starts.
 const dialog = $("new-dialog");
 const newForm = $("new-form");
+const PROMPT_HINT = $("prompt").placeholder;
+const PROMPT_HINT_WITH_REFERENCE = "Leave empty to recreate the image, or say how to use it: "
+  + "“my dog as a cartoon”, “a seascape in these colours”";
 
 function updatePaintButton() {
   const length = $("prompt").value.length;
   $("prompt-count").textContent = String(length);
-  $("paint").disabled = !$("prompt").value.trim() || state === "connecting" || state === "painting";
+  const asked = $("prompt").value.trim() || refUrl;
+  $("paint").disabled = !asked || state === "connecting" || state === "painting";
 }
 
 function openNewPainting() {
@@ -286,6 +305,113 @@ function openNewPainting() {
   dialog.showModal();
   $("prompt").focus();
 }
+
+// ---- the reference image
+// The browser picks the canvas shape nearest the image's own, crops the middle of the image
+// to it and scales it to the canvas size, so Painty's reference and canvas match pixel for
+// pixel. Changing the canvas shape afterwards re-crops the original.
+const MAX_REFERENCE_FILE = 25 * 1024 * 1024;
+let refSource = null; // the decoded original (an ImageBitmap)
+let refUrl = null;    // the cropped image sent with paint (a JPEG data URL)
+
+function nearestShape(width, height) {
+  let best = "square";
+  let gap = Infinity;
+  for (const [name, [w, h]] of Object.entries(canvases)) {
+    const d = Math.abs(Math.log(width / height) - Math.log(w / h));
+    if (d < gap) { best = name; gap = d; }
+  }
+  return best;
+}
+
+function cropReference() {
+  const shape = newForm.elements.canvas.value;
+  const [w, h] = canvases[shape] || canvases.square;
+  const src = refSource;
+  const scale = Math.max(w / src.width, h / src.height);
+  const sw = w / scale;
+  const sh = h / scale;
+  const out = document.createElement("canvas");
+  out.width = w;
+  out.height = h;
+  const g = out.getContext("2d");
+  g.fillStyle = "#ffffff"; // transparent parts are laid on white, like the canvas
+  g.fillRect(0, 0, w, h);
+  g.imageSmoothingQuality = "high";
+  g.drawImage(src, (src.width - sw) / 2, (src.height - sh) / 2, sw, sh, 0, 0, w, h);
+  refUrl = out.toDataURL("image/jpeg", 0.92);
+  $("ref-img").src = refUrl;
+  const cropped = sw * sh < 0.99 * src.width * src.height;
+  $("ref-text").textContent = `${cropped ? "Cropped to" : "Fits"} the ${shape} canvas, ${w} × ${h}.`;
+}
+
+function refError(text) {
+  $("ref-error").textContent = text || "";
+  $("ref-error").hidden = !text;
+}
+
+async function setReference(file) {
+  refError("");
+  if (!file || !file.type.startsWith("image/")) { refError("That isn't an image."); return; }
+  if (file.size > MAX_REFERENCE_FILE) { refError("That image is too big: 25 MB at most."); return; }
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+  } catch {
+    refError("That image couldn't be read. Try a PNG, JPEG or WebP.");
+    return;
+  }
+  refSource?.close();
+  refSource = bitmap;
+  newForm.elements.canvas.value = nearestShape(bitmap.width, bitmap.height);
+  cropReference();
+  $("ref-empty").hidden = true;
+  $("ref-chosen").hidden = false;
+  $("prompt").placeholder = PROMPT_HINT_WITH_REFERENCE;
+  updatePaintButton();
+}
+
+function clearReference() {
+  refSource?.close();
+  refSource = null;
+  refUrl = null;
+  $("ref-img").removeAttribute("src");
+  $("ref-file").value = "";
+  $("ref-chosen").hidden = true;
+  $("ref-empty").hidden = false;
+  $("prompt").placeholder = PROMPT_HINT;
+  refError("");
+  updatePaintButton();
+}
+
+$("ref-pick").addEventListener("click", () => $("ref-file").click());
+$("ref-file").addEventListener("change", () => setReference($("ref-file").files[0]));
+$("ref-remove").addEventListener("click", () => { clearReference(); $("ref-pick").focus(); });
+for (const radio of newForm.elements.canvas) {
+  radio.addEventListener("change", () => { if (refSource) cropReference(); });
+}
+// Drop an image anywhere on the dialog, or paste one while it's open.
+newForm.addEventListener("dragover", (ev) => {
+  if (![...ev.dataTransfer.types].includes("Files")) return;
+  ev.preventDefault();
+  $("ref-slot").classList.add("dragging");
+});
+newForm.addEventListener("dragleave", (ev) => {
+  if (!newForm.contains(ev.relatedTarget)) $("ref-slot").classList.remove("dragging");
+});
+newForm.addEventListener("drop", (ev) => {
+  $("ref-slot").classList.remove("dragging");
+  const file = ev.dataTransfer.files[0];
+  if (!file) return;
+  ev.preventDefault();
+  setReference(file);
+});
+dialog.addEventListener("paste", (ev) => {
+  const item = [...(ev.clipboardData?.items || [])].find((i) => i.kind === "file" && i.type.startsWith("image/"));
+  if (!item) return; // plain text pastes into the prompt as usual
+  ev.preventDefault();
+  setReference(item.getAsFile());
+});
 
 $("new-painting").addEventListener("click", openNewPainting);
 $("close-new").addEventListener("click", () => dialog.close());
@@ -303,11 +429,11 @@ $("prompt").addEventListener("keydown", (ev) => {
 newForm.addEventListener("submit", (ev) => {
   ev.preventDefault();
   const prompt = $("prompt").value.trim();
-  if (!prompt || state === "painting" || state === "connecting") return;
+  if ((!prompt && !refUrl) || state === "painting" || state === "connecting") return;
   if (state === "paused" && !confirm("Start a new drawing? The paused one hasn't been saved.")) return;
-  send({ type: "paint", prompt, canvas: newForm.elements.canvas.value });
+  send({ type: "paint", prompt, canvas: newForm.elements.canvas.value, ...(refUrl ? { reference: refUrl } : {}) });
   $("prompt").value = "";
-  updatePaintButton();
+  clearReference();
   dialog.close();
 });
 
@@ -400,6 +526,11 @@ function canvasOf(m) {
   return m.canvas || { shape: "square", width: 512, height: 512 };
 }
 
+// A reference with no prompt means "recreate it".
+function promptOf(m) {
+  return m.prompt || (m.reference ? "Recreate the reference image" : "");
+}
+
 function summary(m) {
   const s = m.settings || {};
   return `${s.model || "?"}, eyes ${s.vision ? "on" : "off"}, ${m.shapes_used} shapes`;
@@ -412,13 +543,22 @@ function renderGallery(items) {
   for (const m of items) {
     const card = el("button", "gallery-card");
     card.type = "button";
-    const img = el("img");
+    const art = el("span", "card-art");
+    const img = el("img", "card-painting");
     img.src = `/gallery/${encodeURIComponent(m.id)}/painting.png`;
     img.alt = m.title;
     img.loading = "lazy";
+    art.appendChild(img);
+    if (m.reference) { // the reference, small in the corner, so the pair reads at a glance
+      const ref = el("img", "card-ref");
+      ref.src = `/gallery/${encodeURIComponent(m.id)}/reference.png`;
+      ref.alt = "Reference image";
+      ref.loading = "lazy";
+      art.appendChild(ref);
+    }
     const text = el("div", "gallery-text");
-    text.append(el("h3", "", m.title), el("p", "gallery-prompt", preview(m.prompt)), el("p", "gallery-meta", summary(m)));
-    card.append(img, text);
+    text.append(el("h3", "", m.title), el("p", "gallery-prompt", preview(promptOf(m))), el("p", "gallery-meta", summary(m)));
+    card.append(art, text);
     card.addEventListener("click", () => showDetail(m));
     grid.appendChild(card);
   }
@@ -440,8 +580,12 @@ function shapeSpan(st) {
   return st.first === st.last ? `shape ${st.first}` : `shapes ${st.first}–${st.last}`;
 }
 
+// Stands in for a look in the stage viewer's picture switch: show the reference image.
+const REFERENCE = { reference: true };
+
 // The mini gallery: a big preview with a strip of every stage (one per paint call) under it.
 // Stages Painty looked at are marked with an eye, and can swap to exactly what Painty saw.
+// A painting made from a reference can also swap to the reference, for comparison.
 function stageViewer(m, base) {
   const stages = m.stages;
   const looks = new Map((m.looks || []).map((l) => [l.n, l]));
@@ -498,7 +642,10 @@ function stageViewer(m, base) {
     const st = stages[current];
     shownLook = look;
     for (const b of views.children) b.setAttribute("aria-pressed", String(b.look === look));
-    if (look) {
+    if (look === REFERENCE) {
+      bigImg.src = `${base}/reference.png`;
+      bigImg.alt = "The reference image";
+    } else if (look) {
       bigImg.src = `${base}/looks/look-${look.n}.png`;
       bigImg.alt = `What Painty saw on look ${look.n}`;
     } else {
@@ -517,8 +664,10 @@ function stageViewer(m, base) {
     caption.replaceChildren(...(seen.length ? [eyeBadge()] : []),
       el("span", "", `${stageName(st)} · ${shapeSpan(st)}`));
     views.replaceChildren();
-    if (seen.length) {
-      const options = [["Painting", null], ...seen.map((l) => [seen.length === 1 ? "What Painty saw" : `Look ${l.n}`, l])];
+    const options = [["Painting", null],
+      ...seen.map((l) => [seen.length === 1 ? "What Painty saw" : `Look ${l.n}`, l]),
+      ...(m.reference ? [["Reference", REFERENCE]] : [])];
+    if (options.length > 1) {
       for (const [text, look] of options) {
         const b = el("button", "stage-view", text);
         b.type = "button";
@@ -550,6 +699,10 @@ function stageViewer(m, base) {
   big.setAttribute("aria-label", "Enlarge, with Painty's notes");
   big.addEventListener("click", () => {
     const st = stages[current];
+    if (shownLook === REFERENCE) {
+      openLightbox(bigImg.src, "The reference image");
+      return;
+    }
     const heading = shownLook ? `What Painty saw on look ${shownLook.n} · ${stageName(st)}`
       : `${stageName(st)} · ${shapeSpan(st)}`;
     openLightbox(bigImg.src, heading, details(st));
@@ -581,7 +734,7 @@ function showDetail(m) {
   const endings = { finished: "Painty finished it", ended: "Painty stopped without finishing", saved: "You saved it" };
   const c = canvasOf(m);
   const rows = [
-    ["Prompt", m.prompt],
+    ["Prompt", promptOf(m)],
     ["Canvas", `${c.shape[0].toUpperCase()}${c.shape.slice(1)}, ${c.width} × ${c.height}`],
     ["Model", `${s.model} (effort: ${s.reasoning_effort || "default"})`],
     ["Vision", s.vision ? "On" : "Off"],
@@ -601,6 +754,7 @@ function showDetail(m) {
   const files = el("p", "files");
   const fileLinks = [["PNG", "painting.png"], ["SVG", "painting.svg"],
     ...(m.shape_format === "notation" ? [["Shapes", "shapes.txt"]] : []),
+    ...(m.reference ? [["Reference", "reference.png"], ["Reference as Painty saw it", "reference-view.png"]] : []),
     ["Shapes (JSON)", "shapes.json"], ["Details", "meta.json"]];
   for (const [label, file] of fileLinks) {
     const a = el("a", "", label);

@@ -1,5 +1,6 @@
 """The canvas and renderer: plain Python, no AI."""
 
+import base64
 import io
 
 import pytest
@@ -8,7 +9,62 @@ from PIL import Image
 from app.canvas import (Canvas, Shape, check_batch, check_shape, kind_of, normalise_hex,
                         parse_shape, shape_svg, split_batch)
 from app.settings_store import SettingsStore, StudioSettings, clean
-from app.view import FRAME, agent_view_png, render_png
+from app.view import FRAME, agent_view_png, framed_png, reference_png, render_png
+
+
+def image_url(img: Image.Image, fmt: str = "PNG") -> str:
+    """An image as the data URL the browser sends."""
+    buf = io.BytesIO()
+    img.save(buf, format=fmt)
+    return f"data:image/{fmt.lower()};base64," + base64.b64encode(buf.getvalue()).decode()
+
+
+def test_reference_is_centre_cropped_to_the_canvas():
+    # 3:1 stripes: red | green | blue. A 3:2 crop from the middle keeps only the green.
+    img = Image.new("RGB", (1200, 400), (0, 200, 0))
+    img.paste((255, 0, 0), (0, 0, 290, 400))
+    img.paste((0, 0, 255), (910, 0, 1200, 400))
+    out = Image.open(io.BytesIO(reference_png(image_url(img), 768, 512))).convert("RGB")
+    assert out.size == (768, 512)
+    for x, y in ((0, 0), (767, 511), (384, 256)):
+        r, g, b = out.getpixel((x, y))
+        assert g > 150 and r < 60 and b < 60
+
+
+def test_a_full_size_photo_is_scaled_down_to_the_canvas():
+    # A 12-megapixel phone photo becomes canvas-sized, so it costs no more tokens than a look.
+    photo = image_url(Image.new("RGB", (4032, 3024), (90, 140, 200)), "JPEG")
+    out = Image.open(io.BytesIO(reference_png(photo, 768, 512)))
+    assert out.size == (768, 512)
+
+
+def test_reference_transparency_is_laid_on_white():
+    img = Image.new("RGBA", (512, 512), (0, 0, 0, 0))
+    img.paste((255, 0, 0, 255), (0, 0, 256, 512))
+    out = Image.open(io.BytesIO(reference_png(image_url(img), 512, 512))).convert("RGB")
+    assert out.getpixel((100, 100)) == (255, 0, 0) and out.getpixel((400, 100)) == (255, 255, 255)
+
+
+@pytest.mark.parametrize("url, message", [
+    ("data:text/plain;base64,aGVsbG8=", "isn't an image"),
+    ("data:image/png;base64,not base64!", "couldn't be read"),
+    ("data:image/png;base64,AAAAAAAA", "couldn't be read"),
+    (image_url(Image.new("RGB", (10, 10)), "GIF"), "PNG, JPEG or WebP"),
+    (image_url(Image.new("1", (8000, 8000))), "too big"),
+])
+def test_bad_references_are_refused_with_a_reason(url, message):
+    with pytest.raises(ValueError, match=message):
+        reference_png(url, 512, 512)
+
+
+def test_reference_view_has_the_same_ruler_frame_as_a_look():
+    ref = reference_png(image_url(Image.new("RGB", (512, 768), (10, 20, 30))), 512, 768)
+    view = Image.open(io.BytesIO(framed_png(ref, 512, 768))).convert("RGB")
+    canvas = Canvas("portrait")
+    look = Image.open(io.BytesIO(agent_view_png(canvas.to_svg(), 512, 768))).convert("RGB")
+    assert view.size == look.size == (512 + 2 * FRAME, 768 + 2 * FRAME)
+    assert view.getpixel((5, 5)) == look.getpixel((5, 5))  # the frame
+    assert view.getpixel((FRAME + 10, FRAME + 10)) == (10, 20, 30)  # the picture inside it
 
 
 def make(kind="rectangle", start=(10, 10), end=(110, 60), colours=("#ff0000",), style="solid",

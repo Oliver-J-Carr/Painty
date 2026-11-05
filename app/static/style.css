@@ -118,7 +118,10 @@ button, input, select, textarea { font: inherit; }
 .eyes span { width: 10px; height: 10px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px rgba(247, 247, 242, 0.55); }
 .eyes span.used { background: var(--cadmium); box-shadow: none; }
 
-.prompt-shown { margin: 0; color: rgba(247, 247, 242, 0.85); text-align: center; max-width: 60ch; }
+.prompt-shown { display: flex; align-items: center; justify-content: center; gap: 12px; color: rgba(247, 247, 242, 0.85); max-width: 60ch; }
+.prompt-shown p { margin: 0; text-align: center; }
+.ref-shown { flex: none; padding: 0; border: 0; background: none; cursor: zoom-in; }
+.ref-shown img { display: block; height: 48px; width: auto; border-radius: 2px; box-shadow: 0 0 0 2px rgba(247, 247, 242, 0.85); }
 
 /* ---------- outcome cards ---------- */
 .outcome {
@@ -165,6 +168,19 @@ button, input, select, textarea { font: inherit; }
 .canvas-choice input[value="portrait"] + .shape-icon { width: 21px; height: 32px; margin: 0; }
 .canvas-choice label:has(input:checked) .shape-icon { background: var(--cadmium); }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+.optional { font-weight: 400; color: var(--graphite-soft); }
+/* The reference image: a dashed drop zone until an image is chosen, then the cropped preview. */
+.ref-slot { border-radius: var(--radius); box-shadow: inset 0 0 0 1.5px var(--paper-edge); }
+.ref-slot:has(.ref-empty:not([hidden])) { box-shadow: none; border: 1.5px dashed #b9bcb2; }
+.ref-slot.dragging { border-color: var(--graphite); background: #fff; }
+.ref-empty { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; padding: 14px; color: var(--graphite-soft); font-size: 14px; }
+.ref-empty .ghost-dark { padding: 6px 12px; }
+.ref-chosen { display: flex; align-items: center; gap: 14px; padding: 10px; }
+.ref-chosen img { display: block; flex: none; height: 120px; width: auto; max-width: 55%; object-fit: contain; border-radius: 2px; box-shadow: 0 0 0 1px var(--paper-edge); }
+.ref-about { display: grid; gap: 8px; justify-items: start; font-size: 14px; }
+.ref-about p { margin: 0; }
+.ref-about .ghost-dark { padding: 5px 12px; }
+.ref-error { margin: 6px 0 0; color: var(--vermilion); font-size: 14px; font-weight: 600; }
 
 /* ---------- activity feed ---------- */
 .feed {
@@ -232,7 +248,13 @@ button, input, select, textarea { font: inherit; }
   border: 0; padding: 0 0 20px; background: none; text-align: left; cursor: pointer; color: inherit;
 }
 /* Square tiles; a landscape or portrait painting sits inside its tile uncropped. */
-.gallery-card img { display: block; width: 100%; aspect-ratio: 1; object-fit: contain; background: #ecece4; box-shadow: 0 0 0 1px var(--paper-edge), 0 6px 14px -8px rgba(0, 0, 0, 0.4); }
+.card-art { position: relative; display: block; }
+.gallery-card .card-painting { display: block; width: 100%; aspect-ratio: 1; object-fit: contain; background: #ecece4; box-shadow: 0 0 0 1px var(--paper-edge), 0 6px 14px -8px rgba(0, 0, 0, 0.4); }
+/* A painting made from a reference shows the reference small in its tile's corner. */
+.gallery-card .card-ref {
+  position: absolute; right: 6px; bottom: 6px; width: 32%; height: auto; display: block;
+  border-radius: 2px; box-shadow: 0 0 0 2px #fff, 0 2px 8px rgba(0, 0, 0, 0.35);
+}
 .gallery-text { padding-top: 8px; min-width: 0; }
 .gallery-card h3 { margin: 0; font-size: 15px; font-weight: 700; font-variation-settings: "CASL" 1; }
 .gallery-card p { margin: 2px 0 0; font-size: 13px; overflow-wrap: anywhere; }

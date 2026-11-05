@@ -74,7 +74,9 @@ async def ws_endpoint(ws: WebSocket) -> None:
             msg = await ws.receive_json()
             kind = msg.get("type") if isinstance(msg, dict) else None
             if kind == "paint":
-                await studio.start(str(msg.get("prompt", "")), str(msg.get("canvas") or ""))
+                reference = msg.get("reference")
+                await studio.start(str(msg.get("prompt", "")), str(msg.get("canvas") or ""),
+                                   reference if isinstance(reference, str) else None)
             elif kind == "keep_going":
                 await studio.keep_going()
             elif kind == "stop":

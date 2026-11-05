@@ -9,6 +9,8 @@ Each painting gets its own folder under DATA_DIR/gallery:
         shapes.json       every shape in paint order, as parsed data
         stages/stage-1.png  the canvas after each paint call (512 px, no grid)
         looks/look-1.png  exactly what the agent saw on each look (grid included)
+        reference.png     the reference image, if one was given (canvas size)
+        reference-view.png  the reference as the agent saw it (grid included)
         meta.json         prompt, title, note, canvas, settings, budgets used, tokens
 
 Plain files, no database: easy to browse, copy, zip or delete by hand.
@@ -40,6 +42,8 @@ class SaveRequest:
     settings: dict
     shapes_budget: int       # total, including any top-ups
     looks_budget: int
+    reference: bytes | None = None       # the reference image, clean PNG at canvas size
+    reference_view: bytes | None = None  # the same in the ruler frame, as the agent saw it
     looks: list[Look] = field(default_factory=list)
     stages: list[Stage] = field(default_factory=list)
     top_ups: int = 0
@@ -78,6 +82,10 @@ class Gallery:
         (folder / "painting.png").write_bytes(render_png(svg, zoom=GALLERY_ZOOM))
         (folder / "shapes.txt").write_text(req.canvas.shape_text(), encoding="utf-8")
         (folder / "shapes.json").write_text(json.dumps(req.canvas.shape_log(), indent=1), encoding="utf-8")
+        if req.reference:
+            (folder / "reference.png").write_bytes(req.reference)
+        if req.reference_view:
+            (folder / "reference-view.png").write_bytes(req.reference_view)
         for i, look in enumerate(req.looks, start=1):
             (folder / "looks" / f"look-{i}.png").write_bytes(look.png)
         stages = _stage_log(req.stages, req.looks)
@@ -93,6 +101,9 @@ class Gallery:
             "ending": req.ending,
             # The canvas shape and size. Older paintings have none: 512 x 512 square.
             "canvas": req.canvas.info(),
+            # True when the person gave a reference image (reference.png, and
+            # reference-view.png as the agent saw it). Older paintings have none.
+            "reference": req.reference is not None,
             "created_at": now,
             "duration_s": round(now - req.started_at, 1) if req.started_at else None,
             "settings": req.settings,

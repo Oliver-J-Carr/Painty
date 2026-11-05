@@ -64,7 +64,7 @@ docker image prune
 - `app/painter.py`: the painter agent, its dynamic instructions and `_stop_when_done` (the `tool_use_behavior` that ends a run on `finish` or an empty shape budget).
 - `app/tools.py`: the three function tools: `paint`, `look`, `finish`.
 - `app/canvas.py`: the shape models (internal only), the shape notation parser, validation and SVG rendering. No AI here.
-- `app/view.py`: SVG to PNG (resvg), and the agent's view with its ruler frame and grid (Pillow).
+- `app/view.py`: SVG to PNG (resvg), the agent's view with its ruler frame and grid (Pillow), and reference images (checked, cropped to the canvas, framed the same way).
 - `app/gallery.py`: saves finished paintings as plain files under `DATA_DIR/gallery`, including a snapshot of each stage (one per paint call that painted), rendered at save time.
 - `app/settings_store.py`: the settings panel's values, clamped and saved to `DATA_DIR/settings.json`.
 - `app/context.py`: `PaintyContext` (canvas, budget, looks, event helpers), passed to tools and hooks, never sent to the model.
@@ -83,6 +83,7 @@ docker image prune
 - **One renderer.** Each shape becomes one self-contained SVG fragment (`canvas.shape_svg`). The browser shows those fragments; the backend joins the same fragments and rasterises them for looks and the gallery. Never re-implement shape drawing in JavaScript.
 - **Batches, one tool call per turn.** `paint` takes an ordered list, and `parallel_tool_calls=False`, so layering is always in the order the agent planned. `paint_lock` is a backstop.
 - **Batches are painted up to the first bad shape.** The shapes before it are painted; it and everything after it are not, and cost no budget, so a resend lands in the planned order. The result lists every problem in the batch, numbered within the batch. Never paint shapes after a bad one: that breaks the layering.
+- **A reference image goes in the first user message, once.** Inside the same ruler frame as `look`, cropped to the canvas size. Never through a tool (each call would add the image again). No text with it means recreate it.
 - **The same model sees its own work.** `look` returns the PNG to the painter itself via `ToolOutputImage`. Don't route images through a separate describing model (the book's Ch 7 critic pattern): that's what this project avoids.
 - **The grid is only in the agent's view.** `view.agent_view_png` adds a numbered ruler frame and faint grid lines every 64 px. The painting, the browser canvas and the gallery PNG never have them.
 - **Vision is a toggle, for comparison.** With vision off, the `look` tool is not registered at all and the prompt says it is painting blind.
@@ -115,20 +116,20 @@ docker image prune
 ## WebSocket protocol
 
 - Browser to server:
-  - `{"type": "paint", "prompt": "...", "canvas": "square"}`: start a new drawing (max 500 characters). `canvas` is `square`, `landscape` or `portrait`; anything else means square.
+  - `{"type": "paint", "prompt": "...", "canvas": "square", "reference": "data:image/jpeg;base64,..."}`: start a new drawing (max 500 characters). `canvas` is `square`, `landscape` or `portrait`; anything else means square. `reference` is optional; with it, `prompt` may be empty (recreate the image).
   - `{"type": "keep_going"}`: top up a paused drawing and carry on.
   - `{"type": "stop"}`: cancel the running drawing.
   - `{"type": "save"}`: save a paused, stopped or failed drawing to the gallery.
   - `{"type": "settings", "settings": {...}}`: update settings (refused while painting).
 - Server to browser:
   - `hello`: `version`, `canvases` (`{shape: [width, height]}`), `settings`, `options` (models, efforts, limits).
-  - `canvas_reset`: a new drawing started (`prompt`, `settings`, `shape`, `width`, `height`). Clear and resize the canvas, and clear the feed.
+  - `canvas_reset`: a new drawing started (`prompt`, `reference` (a PNG data URL or null), `settings`, `shape`, `width`, `height`). Clear and resize the canvas, and clear the feed.
   - `shapes`: `shapes` as `[{n, svg}]` in paint order, plus `key` (the tool call id).
   - `look`: `key`, `n`, `focus` and `image` (a PNG data URL of exactly what the agent saw).
   - `budget`: shapes and looks used, total and left, and `top_ups`.
   - `status`: `state` of `painting`, `paused` (`reason`, `top_up`), `finished` (`title`, `note`, `ending`, `saved_id`, `meta`, `tokens`), `stopped` or `error` (`reason`).
   - `phase`: `thinking`, `paint`, `look` or `finish`, shown in the top bar's status line while painting.
-  - `activity`: feed entries. Tool entries share a `key` and go from `running` to `done` or `error`.
+  - `activity`: feed entries. Tool entries share a `key` and go from `running` to `done` or `error`. An optional `image` (a data URL) shows as a thumbnail, such as the reference image as Painty sees it.
   - `settings`: the current settings after an update.
   - `error`: a short message for a toast.
 - Changing an event's shape means updating `app.js` and the tests in the same change.

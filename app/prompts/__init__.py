@@ -23,3 +23,4 @@ def fill(template: str, **values: object) -> str:
 PAINTER_PROMPT = _load("painter")
 VISION_ON = _load("vision_on")
 VISION_OFF = _load("vision_off")
+REFERENCE = _load("reference")

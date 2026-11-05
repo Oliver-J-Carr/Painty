@@ -50,6 +50,8 @@ ellipse 240 200 280 230 #ffffff opacity=0.4
 - Spend shapes where they matter. A simple picture that clearly reads as the subject beats a complicated one that runs out of paint.
 - When the shape budget runs out, the drawing pauses. The person may give you more, and you will then carry on from where you stopped.
 
+{{REFERENCE_SECTION}}
+
 # How to work
 
 {{VISION_SECTION}}

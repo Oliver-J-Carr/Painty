@@ -36,6 +36,7 @@ from .hooks import ActivityHooks
 from .painter import PAUSED, build_painter_agent
 from .settings_store import SettingsStore
 from .tools import budget_left
+from .view import data_url, framed_png, reference_png
 
 log = logging.getLogger("painty")
 
@@ -89,19 +90,33 @@ class Studio:
                 "settings": settings_dict(self.store.current), "options": self.store.options()}
 
     # ------------------------------------------------------------ commands
-    async def start(self, prompt: str, shape: str = DEFAULT_SHAPE) -> None:
+    async def start(self, prompt: str, shape: str = DEFAULT_SHAPE, reference: str | None = None) -> None:
         """Start a brand new drawing on a fresh canvas of the given shape
-        (square, landscape or portrait; anything else means square)."""
+        (square, landscape or portrait; anything else means square).
+
+        reference: an optional image (a data URL) to work from. With no prompt,
+        Painty recreates it; with one, it uses it as the prompt says.
+        """
         prompt = (prompt or "").strip()[:MAX_PROMPT]
-        if not prompt:
+        if not prompt and not reference:
             return
         if self.state == "painting":
             await self._error("Still painting. Stop it first.")
             return
 
+        canvas = Canvas(shape)  # unknown shapes fall back to square
+        ref = view = None
+        if reference:
+            try:
+                ref = await asyncio.to_thread(reference_png, reference, canvas.width, canvas.height)
+            except ValueError as exc:
+                await self._error(str(exc))
+                return
+            view = await asyncio.to_thread(framed_png, ref, canvas.width, canvas.height)
+
         s = self.store.current
-        self.ctx = PaintyContext(send=self.send, settings=s, prompt=prompt,
-                                 canvas=Canvas(shape),  # unknown shapes fall back to square
+        self.ctx = PaintyContext(send=self.send, settings=s, prompt=prompt, canvas=canvas,
+                                 reference=ref, reference_view=view,
                                  budget=Budget(s.shape_budget, s.look_budget if s.vision else 0))
         self.drawing_id = f"painty_{uuid.uuid4().hex[:12]}"
         self.agent = build_painter_agent(s, self.model, cache_key=self.drawing_id)
@@ -109,14 +124,20 @@ class Studio:
         self.saved_id = None
         self.input_tokens = self.cached_tokens = self.output_tokens = self.reasoning_tokens = 0
 
-        canvas = self.ctx.canvas
         await self._emit({"type": "canvas_reset", "prompt": prompt,
+                          "reference": data_url(ref) if ref else None,
                           "settings": settings_dict(s), **canvas.info()})
         await self.ctx.send_budget()
-        await self.ctx.activity("agent", f"🎨 New drawing: {prompt}",
+        what = prompt or "recreate the reference image"
+        await self.ctx.activity("agent", f"🎨 New drawing: {what}",
                                 f"{s.model}, vision {'on' if s.vision else 'off'}, "
-                                f"{canvas.shape} {canvas.width} × {canvas.height}")
-        self._launch(f"Paint this: {prompt}", label="start")
+                                f"{canvas.shape} {canvas.width} × {canvas.height}"
+                                + (", with a reference image" if prompt and ref else ""))
+        if view:
+            await self.ctx.activity("agent", "🖼️ The reference image Painty was given",
+                                    f"Cropped and scaled to the canvas ({canvas.width} × {canvas.height}), "
+                                    "inside Painty's ruler and grid", image=data_url(view))
+        self._launch(_first_message(prompt, view), label="start")
 
     async def keep_going(self) -> None:
         """Top up the budget and carry on the same conversation."""
@@ -170,6 +191,7 @@ class Studio:
             with trace(env.trace_workflow_name, group_id=self.drawing_id,
                        metadata={"app": "painty", "version": __version__, "segment": label,
                                  "model": ctx.settings.model, "canvas": ctx.canvas.shape,
+                                 "reference": str(ctx.reference is not None).lower(),
                                  "vision": str(ctx.settings.vision).lower()}):
                 result = await Runner.run(self.agent, run_input, context=ctx,
                                           hooks=self.hooks, max_turns=_turn_limit(ctx.budget))
@@ -210,7 +232,8 @@ class Studio:
     async def _save_and_finish(self, ending: str, title: str, note: str) -> None:
         c = self.ctx
         req = SaveRequest(
-            canvas=c.canvas, prompt=c.prompt, title=title, note=note, ending=ending,
+            canvas=c.canvas, prompt=c.prompt, reference=c.reference,
+            reference_view=c.reference_view, title=title, note=note, ending=ending,
             settings=settings_dict(c.settings), shapes_budget=c.budget.shapes_total,
             looks_budget=c.budget.looks_total, looks=list(c.looks), stages=list(c.stages),
             top_ups=c.budget.top_ups,
@@ -250,6 +273,20 @@ class Studio:
             await coro
         except Exception:
             pass
+
+
+def _first_message(prompt: str, reference_view: bytes | None):
+    """The person's opening message. A reference image goes in it once, inside
+    the ruler frame: it stays in the history, so every later call (and keep
+    going) still has it, served from the prompt cache after the first."""
+    if reference_view is None:
+        return f"Paint this: {prompt}"
+    text = (f"Paint this: {prompt}\n\nHere is the reference image." if prompt
+            else "Recreate this reference image as a painting.")
+    return [{"role": "user", "content": [
+        {"type": "input_text", "text": text},
+        {"type": "input_image", "image_url": data_url(reference_view), "detail": "high"},
+    ]}]
 
 
 def _history_from(exc: MaxTurnsExceeded) -> list | None:

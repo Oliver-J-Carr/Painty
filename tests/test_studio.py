@@ -6,6 +6,7 @@ events the browser would receive.
 """
 
 import asyncio
+import base64
 import io
 import json
 
@@ -368,6 +369,106 @@ def test_unknown_canvas_shape_falls_back_to_square(tmp_path):
     assert studio.ctx.canvas.info() == {"shape": "square", "width": 512, "height": 512}
     assert studio.hello()["canvases"] == {"square": [512, 512], "landscape": [768, 512],
                                           "portrait": [512, 768]}
+
+
+def _reference_url(size=(900, 600), colour=(200, 120, 40)):
+    buf = io.BytesIO()
+    Image.new("RGB", size, colour).save(buf, format="JPEG")
+    return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
+
+
+def _images_in(items):
+    """Every input_image in a model call's input items."""
+    found = []
+    for item in items:
+        content = item.get("content") if isinstance(item, dict) else None
+        if isinstance(content, list):
+            found += [part for part in content if isinstance(part, dict) and part.get("type") == "input_image"]
+    return found
+
+
+def test_reference_alone_means_recreate_it(tmp_path):
+    steps = [
+        [paint([rect(0, 0, 768, 512, "#c87828")], "c1")],
+        [finish("c2", "Orange", "A copy of the reference.")],
+    ]
+    studio, model, events = make_studio(tmp_path, steps)
+
+    async def go():
+        await studio.start("", "landscape", _reference_url())
+        await _wait(studio)
+    run(go)
+
+    assert studio.state == "finished"
+    # The reference is in the first user message, with the ask to recreate it...
+    first = model.calls[0].input[0]
+    assert first["role"] == "user"
+    assert any("Recreate this reference image" in part.get("text", "") for part in first["content"])
+    assert len(_images_in(model.calls[0].input)) == 1
+    # ...and stays in the history, so later calls still have it (once, not again each time).
+    assert len(_images_in(model.calls[1].input)) == 1
+
+    instructions = model.calls[0].system_instructions
+    assert "# The reference image" in instructions and "768 x 512" in instructions
+    assert "When you look, compare your canvas with the reference" in instructions
+    assert "{{" not in instructions
+
+    reset = types(events, "canvas_reset")[0]
+    assert reset["prompt"] == "" and reset["reference"].startswith("data:image/png;base64,")
+    assert any("recreate the reference image" in e["text"] for e in types(events, "activity"))
+    # The feed shows exactly the image the model got: canvas-sized, inside the ruler frame.
+    shown = next(e["image"] for e in types(events, "activity") if e.get("image"))
+    assert shown == _images_in(model.calls[0].input)[0]["image_url"]
+    png = base64.b64decode(shown.split(",", 1)[1])
+    assert Image.open(io.BytesIO(png)).size == (768 + 60, 512 + 60)
+
+    folder = tmp_path / "gallery" / types(events, "status")[-1]["saved_id"]
+    meta = json.loads((folder / "meta.json").read_text())
+    assert meta["reference"] is True and meta["prompt"] == ""
+    assert Image.open(folder / "reference.png").size == (768, 512)
+    assert Image.open(folder / "reference-view.png").size == (768 + 60, 512 + 60)
+
+
+def test_reference_with_a_prompt_paints_the_prompt_and_works_blind(tmp_path):
+    studio, model, _ = make_studio(tmp_path, [[finish("c1")]], vision=False)
+
+    async def go():
+        await studio.start("my dog as a cartoon", "square", _reference_url())
+        await _wait(studio)
+    run(go)
+
+    texts = [p.get("text", "") for p in model.calls[0].input[0]["content"]]
+    assert any(t.startswith("Paint this: my dog as a cartoon") for t in texts)
+    assert "You can see the reference but not your canvas" in model.calls[0].system_instructions
+
+
+def test_unreadable_reference_starts_nothing(tmp_path):
+    studio, model, events = make_studio(tmp_path, [[finish("c1")]])
+
+    async def go():
+        await studio.start("", "square", "data:image/png;base64,AAAA")
+        await _wait(studio)
+    run(go)
+
+    assert studio.state == "idle" and studio.ctx is None and not model.calls
+    assert not types(events, "canvas_reset")
+    assert "couldn't be read" in types(events, "error")[0]["text"]
+
+
+def test_no_reference_section_without_a_reference(tmp_path):
+    studio, model, events = make_studio(tmp_path, [[paint([rect(0, 0, 10, 10)], "c1")], [finish("c2")]])
+
+    async def go():
+        await studio.start("a dot")
+        await _wait(studio)
+    run(go)
+
+    instructions = model.calls[0].system_instructions
+    assert "reference" not in instructions.lower() and "\n\n\n" not in instructions
+    assert model.calls[0].input[0]["content"] == "Paint this: a dot"
+    folder = tmp_path / "gallery" / types(events, "status")[-1]["saved_id"]
+    assert json.loads((folder / "meta.json").read_text())["reference"] is False
+    assert not (folder / "reference.png").exists()
 
 
 def test_vision_off_has_no_look_tool(tmp_path):

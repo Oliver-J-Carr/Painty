@@ -56,7 +56,12 @@
           </div>
         </div>
 
-        <p class="prompt-shown" id="prompt-shown" hidden></p>
+        <div class="prompt-shown" id="prompt-shown" hidden>
+          <button type="button" class="ref-shown" id="ref-shown" title="The reference image" hidden>
+            <img id="ref-shown-img" alt="The reference image">
+          </button>
+          <p id="prompt-text"></p>
+        </div>
 
         <div class="outcome outcome-row" id="paused" hidden>
           <p class="outcome-title" id="paused-text">Out of shapes.</p>
@@ -103,6 +108,22 @@
       <textarea id="prompt" name="prompt" maxlength="500" rows="4"
                 placeholder="Try: a ginger cat sitting in the sun"></textarea>
       <p class="field-help"><span id="prompt-count">0</span> / 500 · Enter paints, Shift+Enter starts a new line</p>
+      <p class="field-label" id="ref-label">Reference image <span class="optional">(optional)</span></p>
+      <div class="ref-slot" id="ref-slot" aria-labelledby="ref-label">
+        <div class="ref-empty" id="ref-empty">
+          <button type="button" class="ghost-dark" id="ref-pick">Choose an image</button>
+          <span>or drop or paste one here</span>
+        </div>
+        <div class="ref-chosen" id="ref-chosen" hidden>
+          <img id="ref-img" alt="The reference image, cropped to the canvas">
+          <div class="ref-about">
+            <p id="ref-text"></p>
+            <button type="button" class="ghost-dark" id="ref-remove">Remove</button>
+          </div>
+        </div>
+        <input type="file" id="ref-file" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+      </div>
+      <p class="ref-error" id="ref-error" role="alert" hidden></p>
       <fieldset class="canvas-choice">
         <legend class="field-label">Canvas</legend>
         <label><input type="radio" name="canvas" value="square" checked>

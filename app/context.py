@@ -70,6 +70,8 @@ class PaintyContext:
     send: SendEvent
     settings: StudioSettings           # frozen copy taken when the drawing started
     prompt: str = ""
+    reference: bytes | None = None       # the reference image as a clean PNG, canvas-sized
+    reference_view: bytes | None = None  # the same inside the ruler frame: what the agent saw
     canvas: Canvas = field(default_factory=Canvas)
     budget: Budget = field(default_factory=lambda: Budget(0, 0))
     looks: list[Look] = field(default_factory=list)    # what the agent saw, in order
@@ -90,10 +92,14 @@ class PaintyContext:
         event.setdefault("ts", time.time())
         await self.send(event)
 
-    async def activity(self, kind: str, text: str, detail: str = "", status: str = "done") -> None:
-        """Add an entry to the browser's activity feed."""
-        await self.emit({"type": "activity", "kind": kind, "status": status,
-                         "text": text, "detail": detail})
+    async def activity(self, kind: str, text: str, detail: str = "", status: str = "done",
+                       image: str | None = None) -> None:
+        """Add an entry to the browser's activity feed. image: an optional picture
+        (a data URL) shown as a thumbnail that enlarges on click."""
+        event = {"type": "activity", "kind": kind, "status": status, "text": text, "detail": detail}
+        if image:
+            event["image"] = image
+        await self.emit(event)
 
     async def send_budget(self) -> None:
         await self.emit({"type": "budget", **self.budget.to_dict()})
