@@ -431,6 +431,9 @@ newForm.addEventListener("submit", (ev) => {
   const prompt = $("prompt").value.trim();
   if ((!prompt && !refUrl) || state === "painting" || state === "connecting") return;
   if (state === "paused" && !confirm("Start a new drawing? The paused one hasn't been saved.")) return;
+  // The dialog's settings go first (a number typed just before Enter may not have sent its
+  // change yet). The socket keeps order, so the drawing starts with exactly what's shown.
+  send({ type: "settings", settings: readSettings() });
   send({ type: "paint", prompt, canvas: newForm.elements.canvas.value, ...(refUrl ? { reference: refUrl } : {}) });
   $("prompt").value = "";
   clearReference();
@@ -445,7 +448,13 @@ $("save-halted").addEventListener("click", () => send({ type: "save" }));
 $("view-saved").addEventListener("click", () => openGallery(savedId));
 
 // ------------------------------------------------------------------ settings
+// The settings live in two places: the painter and budget in the New painting dialog, and
+// the keep going top-ups in the settings drawer. Each input is marked data-setting="name".
+// Every change is saved on the server straight away, so they carry over to the next painting.
 const form = $("settings-form");
+const settingInputs = () => document.querySelectorAll("[data-setting]");
+const settingInput = (name) => document.querySelector(`[data-setting="${name}"]`);
+let settingsLocked = false;
 
 function setupSettings(options, values) {
   const model = $("set-model");
@@ -453,7 +462,7 @@ function setupSettings(options, values) {
   const effort = $("set-effort");
   effort.replaceChildren(...options.reasoning_efforts.map((v) => new Option(v ? v[0].toUpperCase() + v.slice(1) : "Model default", v)));
   for (const [name, [lo, hi]] of Object.entries(options.limits)) {
-    const input = form.elements[name];
+    const input = settingInput(name);
     if (input) { input.min = lo; input.max = hi; }
   }
   fillSettings(values);
@@ -461,37 +470,49 @@ function setupSettings(options, values) {
 
 function fillSettings(values) {
   for (const [name, value] of Object.entries(values)) {
-    const input = form.elements[name];
+    const input = settingInput(name);
     if (!input) continue;
     if (input.type === "checkbox") input.checked = Boolean(value);
     else input.value = value;
   }
+  syncLooksInput();
 }
 
 function readSettings() {
   const out = {};
-  for (const input of form.elements) {
-    if (!input.name) continue;
-    out[input.name] = input.type === "checkbox" ? input.checked
+  for (const input of settingInputs()) {
+    out[input.dataset.setting] = input.type === "checkbox" ? input.checked
       : input.type === "number" ? Number(input.value) : input.value;
   }
   return out;
 }
 
-function lockSettings(locked) {
-  form.setAttribute("aria-disabled", String(locked));
-  for (const input of form.elements) input.disabled = locked;
-  $("settings-help").textContent = locked
-    ? "Locked while Painty is painting."
-    : "Changes save as you make them and apply to the next drawing. Keep going uses the top-up amounts set when you click it.";
+// Looks only matter when Painty can see the canvas.
+function syncLooksInput() {
+  settingInput("look_budget").disabled = settingsLocked || !settingInput("vision").checked;
 }
 
-form.addEventListener("change", () => send({ type: "settings", settings: readSettings() }));
+function lockSettings(locked) {
+  settingsLocked = locked;
+  form.setAttribute("aria-disabled", String(locked));
+  for (const input of settingInputs()) input.disabled = locked;
+  syncLooksInput();
+  $("settings-help").textContent = locked
+    ? "Locked while Painty is painting."
+    : "Keep going adds these to a paused drawing, read when you click it. "
+      + "The model, vision and budget for each painting are in the New painting dialog.";
+}
+
+document.addEventListener("change", (ev) => {
+  if (!ev.target.dataset?.setting) return;
+  if (ev.target.dataset.setting === "vision") syncLooksInput();
+  send({ type: "settings", settings: readSettings() });
+});
 
 function toggleSettings(open) {
   $("settings").hidden = !open;
   $("open-settings").setAttribute("aria-expanded", String(open));
-  if (open) form.elements[0]?.focus();
+  if (open) form.querySelector("input")?.focus();
 }
 $("open-settings").addEventListener("click", () => toggleSettings($("settings").hidden));
 $("close-settings").addEventListener("click", () => toggleSettings(false));

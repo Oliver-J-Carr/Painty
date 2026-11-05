@@ -18,7 +18,7 @@ Guidance for AI coding agents working on Painty. Read this before changing code.
 - Keep changes focused on the task. No drive-by refactors or reformatting.
 - Update `README.md` when user-facing behaviour, setup or env vars change. Update `docs/PDD.md` when a design decision changes.
 - When adding an env var: add it to `app/config.py`, `.env.example` (placeholder value only) and the README table.
-- When adding a setting to the on-screen panel: add it to `StudioSettings` and `LIMITS` in `app/settings_store.py`, the form in `static/index.html`, and a test.
+- When adding a setting: add it to `StudioSettings` and `LIMITS` in `app/settings_store.py`, an input marked `data-setting="name"` in `static/index.html` (the New painting dialog for anything chosen per drawing, the settings drawer otherwise), and a test.
 - Run `pytest -q` before saying a change is done.
 - Ask before making live model calls beyond a quick smoke test. They cost API usage, and each look sends an image.
 
@@ -66,7 +66,7 @@ docker image prune
 - `app/canvas.py`: the shape models (internal only), the shape notation parser, validation and SVG rendering. No AI here.
 - `app/view.py`: SVG to PNG (resvg), the agent's view with its ruler frame and grid (Pillow), and reference images (checked, cropped to the canvas, framed the same way).
 - `app/gallery.py`: saves finished paintings as plain files under `DATA_DIR/gallery`, including a snapshot of each stage (one per paint call that painted), rendered at save time.
-- `app/settings_store.py`: the settings panel's values, clamped and saved to `DATA_DIR/settings.json`.
+- `app/settings_store.py`: the on-screen settings (in the New painting dialog and the settings drawer), clamped and saved to `DATA_DIR/settings.json`.
 - `app/context.py`: `PaintyContext` (canvas, budget, looks, event helpers), passed to tools and hooks, never sent to the model.
 - `app/hooks.py`: `RunHooks` that feed the activity panel.
 - `app/prompts/*.md`: prompts, loaded once at import time. `{{NAME}}` placeholders are filled by `prompts.fill()`.
@@ -147,7 +147,7 @@ docker image prune
 - Prompt or static edits do nothing until the image is rebuilt (`--build`). `.env` changes need `--force-recreate`.
 - `docker run` fails if a container named `painty` already exists. Use `docker compose`.
 - `docker compose down -v` deletes the `painty-data` volume, and with it the whole gallery. Use plain `docker compose down`.
-- Some models reject `reasoning.effort`. Set Reasoning effort to "Model default" in the settings panel if a model errors.
+- Some models reject `reasoning.effort`. Set Reasoning effort to "Model default" in the New painting dialog if a model errors.
 - Models in `PAINTY_MODELS` must accept image input for vision mode.
 - The CSS has `[hidden] { display: none !important; }` because component `display` rules otherwise override the `hidden` attribute.
 - `/favicon.ico` needs its explicit route in `main.py`.

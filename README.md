@@ -14,7 +14,7 @@ It's an experiment in agent adaptation. The agent can't fall back on SVG or CSS 
 - **Paint is permanent.** Every shape covers what's beneath it. There's no undo or eraser, so mistakes are fixed by painting over them.
 - **The agent can see its own work.** Each look sends a PNG snapshot to the *same* model doing the painting, with a ruler and grid in its view to help it map what it sees to coordinates.
 - **Vision on or off.** Run the same prompt with and without sight and compare the results.
-- **Budgets you control.** Shape and look budgets, plus a cap on shapes per call, all set on screen.
+- **Budgets you control.** Shape and look budgets, plus a cap on shapes per call, set in the New painting dialog alongside the model and vision.
 - **Keep going.** When the budget runs out, the drawing pauses. Give it more and the agent carries on exactly where it stopped.
 - **Watch it work.** Shapes appear live, layer by layer. A feed shows every batch, the agent's notes, and a thumbnail of everything it looked at.
 - **Gallery.** Every finished painting is saved with its prompt, settings, shapes, looks and token use, ready to compare or share. Step through a snapshot of every stage (one per paint call): the stages the agent looked at are marked with an eye, and can switch to exactly what it saw, grid and all.
@@ -52,9 +52,9 @@ Paintings and settings are kept in the `painty-data` Docker volume, so they surv
 
 To run the tests: `python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements-dev.txt && pytest -q`
 
-## Settings panel
+## Settings
 
-These are set on screen and saved between restarts. Changes apply to the next drawing.
+These are set on screen and saved between restarts. Changes apply to the next drawing. Everything but the keep going top-ups is in the **New painting** dialog, so you can change it as you ask for a picture; the top-ups are under **Settings**.
 
 | Setting | Default | What it does |
 |---|---|---|
@@ -64,7 +64,7 @@ These are set on screen and saved between restarts. Changes apply to the next dr
 | Shapes | 60 | Shapes per drawing |
 | Looks | 5 | Looks per drawing |
 | Most shapes in one paint call | 15 | Stops the agent painting everything in one blind batch |
-| Keep going adds | 20 shapes, 2 looks | What "Keep going" gives a paused drawing |
+| Keep going adds (Settings) | 20 shapes, 2 looks | What "Keep going" gives a paused drawing |
 
 ## Environment variables
 

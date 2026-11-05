@@ -133,6 +133,23 @@
         <label><input type="radio" name="canvas" value="portrait">
           <span class="shape-icon" aria-hidden="true"></span><span>Portrait</span><small data-size="portrait"></small></label>
       </fieldset>
+      <fieldset class="dialog-fields">
+        <legend class="field-label">Painter</legend>
+        <div class="field-row">
+          <label>Model <select data-setting="model" id="set-model"></select></label>
+          <label>Reasoning effort <select data-setting="reasoning_effort" id="set-effort"></select></label>
+        </div>
+        <label class="toggle"><input type="checkbox" data-setting="vision" id="set-vision"> Let Painty see the canvas</label>
+      </fieldset>
+      <fieldset class="dialog-fields">
+        <legend class="field-label">Budget</legend>
+        <div class="field-row three">
+          <label>Shapes <input type="number" data-setting="shape_budget" inputmode="numeric"></label>
+          <label>Looks <input type="number" data-setting="look_budget" inputmode="numeric"></label>
+          <label>Most per paint call <input type="number" data-setting="max_shapes_per_call" inputmode="numeric"></label>
+        </div>
+      </fieldset>
+      <p class="field-help">The painter and budget are remembered for your next painting.</p>
       <div class="dialog-actions">
         <button type="button" class="ghost-dark" id="cancel-new">Cancel</button>
         <button type="submit" class="primary" id="paint" disabled>Paint</button>
@@ -148,23 +165,11 @@
     </div>
     <form id="settings-form" class="settings-form">
       <fieldset>
-        <legend>Painter</legend>
-        <label>Model <select name="model" id="set-model"></select></label>
-        <label>Reasoning effort <select name="reasoning_effort" id="set-effort"></select></label>
-        <label class="toggle"><input type="checkbox" name="vision" id="set-vision"> Let Painty see the canvas</label>
-      </fieldset>
-      <fieldset>
-        <legend>Each drawing gets</legend>
-        <label>Shapes <input type="number" name="shape_budget" inputmode="numeric"></label>
-        <label>Looks <input type="number" name="look_budget" inputmode="numeric"></label>
-        <label>Most shapes in one paint call <input type="number" name="max_shapes_per_call" inputmode="numeric"></label>
-      </fieldset>
-      <fieldset>
         <legend>Keep going adds</legend>
-        <label>Shapes <input type="number" name="top_up_shapes" inputmode="numeric"></label>
-        <label>Looks <input type="number" name="top_up_looks" inputmode="numeric"></label>
+        <label>Shapes <input type="number" data-setting="top_up_shapes" inputmode="numeric"></label>
+        <label>Looks <input type="number" data-setting="top_up_looks" inputmode="numeric"></label>
       </fieldset>
-      <p class="settings-help" id="settings-help">Changes save as you make them and apply to the next drawing. Keep going uses the top-up amounts set when you click it.</p>
+      <p class="settings-help" id="settings-help"></p>
     </form>
   </aside>
 

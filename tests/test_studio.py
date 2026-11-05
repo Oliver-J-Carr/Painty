@@ -471,6 +471,24 @@ def test_no_reference_section_without_a_reference(tmp_path):
     assert not (folder / "reference.png").exists()
 
 
+def test_settings_sent_just_before_paint_apply_to_that_drawing(tmp_path):
+    # The New painting dialog sends its settings, then paint, on the same socket.
+    studio, model, events = make_studio(tmp_path, [[finish("c1")]])
+
+    async def go():
+        await studio.update_settings({"shape_budget": 7, "look_budget": 2, "vision": False,
+                                      "max_shapes_per_call": 3, "reasoning_effort": "high"})
+        await studio.start("a dot")
+        await _wait(studio)
+    run(go)
+
+    c = studio.ctx
+    assert (c.budget.shapes_total, c.budget.looks_total) == (7, 0)  # vision off: no looks
+    assert c.settings.max_shapes_per_call == 3 and c.settings.reasoning_effort == "high"
+    assert "look" not in {t.name for t in model.calls[0].tools}
+    assert types(events, "canvas_reset")[0]["settings"]["shape_budget"] == 7
+
+
 def test_vision_off_has_no_look_tool(tmp_path):
     steps = [[paint([rect(0, 0, 100, 100)], "c1")], [finish("c2")]]
     studio, model, _ = make_studio(tmp_path, steps, vision=False)

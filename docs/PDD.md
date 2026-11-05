@@ -155,7 +155,7 @@ The book's Ch 9 says every agentic loop needs a goal, an iteration strategy and 
 | Shapes per `paint` call | 15 | `paint`. Stops the agent painting everything in one blind batch, which matters for the vision comparison |
 | Hidden turn limit | shapes left + looks left + 10 | the SDK's `max_turns`. A runaway guard: one model call per shape and look is the most a sensible run needs |
 
-All the visible limits are set in the on-screen settings panel (not env vars), so they can be changed while experimenting.
+All the visible limits are set on screen (not env vars), so they can be changed while experimenting: the drawing's budgets in the New painting dialog, the keep going top-ups in the settings drawer.
 
 ### 6.1 Keep going
 
@@ -203,7 +203,7 @@ idle --paint--> painting --finish--------> finished (saved)
 - **Meters** for shapes (bar) and looks (dots).
 - **Activity feed** (permanent right column): every batch with its note and shape counts, every look with a thumbnail of exactly what the agent saw (click to enlarge), errors, and the finish.
 - **Paused card** with Keep going and Finish here. **Finished card** with title, note, shape and token counts, and a link to the gallery.
-- **Settings drawer** for model, reasoning effort, vision and budgets.
+- **Settings where you use them.** The New painting dialog holds the model, reasoning effort, vision and the drawing's budgets, so a comparison run is set up in the same place it's asked for. The looks field is greyed out with vision off. The settings drawer keeps only the keep going top-ups, which matter mid-drawing. All of them are still one set of saved settings: every change is saved straight away and is remembered for the next painting, and the dialog sends its values again just before `paint`, so a drawing starts with exactly what was shown.
 - **New painting dialog.** The top bar has a New painting button (Stop while painting), then a short status line saying what Painty is doing (thinking, painting, looking) or that the connection dropped; the feed has the detail. The button opens a dialog with the prompt (a textarea: Enter paints, Shift+Enter starts a new line), an optional reference image (choose, drop or paste; shown cropped to the canvas) and the canvas shape. It replaced the single-line prompt box in the top bar, which had no room for more, and leaves space for style suggestions. The canvas choice is kept until the page reloads; the prompt and image are cleared once a painting starts.
 - **The reference on screen.** Under the canvas, next to the prompt, a small copy of the reference (click to enlarge). In the gallery, its tile shows the reference small in the corner, and the stage viewer can swap the preview to the reference for comparison.
 - **Canvas shapes on screen.** The canvas is the biggest of its shape that fits the column. Gallery tiles stay square, with landscape and portrait paintings shown whole inside them.
@@ -256,7 +256,7 @@ Endings: `finished` (the agent called finish), `ended` (it stopped without calli
 
 - Each look adds an image to the conversation, and the whole conversation is resent on every model call, so token use grows with each look.
 - Small models may not follow the coordinate system well; that's part of what's being measured.
-- Some models reject `reasoning.effort`; use "Model default" if so.
+- Some models reject `reasoning.effort`; use "Model default" (in the New painting dialog) if so.
 - Tracing uploads tool outputs and inputs, including look images and reference images, to OpenAI.
 - The gallery lives in the `painty-data` Docker volume (the devbox convention for persistent data). `docker compose down -v` would delete it.
 
@@ -285,4 +285,5 @@ Endings: `finished` (the agent called finish), `ended` (it stopped without calli
 | 4 Nov 2026 | Prompt box moved into the top bar, replacing the status line; gallery Back button beside ×, Escape steps back one level |
 | 5 Nov 2026 | Canvas shapes: square 512 × 512 (default), landscape 768 × 512, portrait 512 × 768, chosen per drawing; off-canvas allowance per axis |
 | 5 Nov 2026 | A New painting dialog replaces the top-bar prompt box, with a status line in its place |
+| 5 Nov 2026 | Model, reasoning effort, vision and budgets moved from the settings drawer into the New painting dialog; the drawer keeps the keep going top-ups |
 | 5 Nov 2026 | Reference images: optional, with or without text; picks and is cropped to the canvas shape; sent once in the first message inside the ruler and grid; saved in the gallery |

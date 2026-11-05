@@ -140,7 +140,7 @@ button, input, select, textarea { font: inherit; }
 
 /* ---------- new painting dialog ---------- */
 .dialog {
-  width: min(560px, calc(100vw - 2 * var(--gutter))); max-height: calc(100vh - 2 * var(--gutter));
+  width: min(600px, calc(100vw - 2 * var(--gutter))); max-height: calc(100vh - 2 * var(--gutter));
   padding: 0; border: 0; border-radius: var(--radius);
   background: var(--paper); color: var(--graphite);
   box-shadow: 0 24px 60px rgba(8, 26, 19, 0.55);
@@ -168,6 +168,18 @@ button, input, select, textarea { font: inherit; }
 .canvas-choice input[value="portrait"] + .shape-icon { width: 21px; height: 32px; margin: 0; }
 .canvas-choice label:has(input:checked) .shape-icon { background: var(--cadmium); }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+/* Painter and budget: compact rows of labelled controls, label above the control. */
+.dialog-fields { border: 0; margin: 4px 0 0; padding: 0; }
+.field-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 12px; }
+.field-row.three { grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); }
+.field-row label { display: grid; gap: 4px; font-size: 13px; color: var(--graphite-soft); }
+.field-row select, .field-row input[type="number"] {
+  width: 100%; padding: 6px 8px; border-radius: 4px; border: 1px solid #b9bcb2; background: #fff;
+  color: var(--graphite); font-size: 15px;
+}
+.field-row input:disabled { opacity: 0.5; }
+.dialog-fields .toggle { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.dialog-fields input[type="checkbox"] { width: 18px; height: 18px; margin: 0; accent-color: var(--mat); }
 .optional { font-weight: 400; color: var(--graphite-soft); }
 /* The reference image: a dashed drop zone until an image is chosen, then the cropped preview. */
 .ref-slot { border-radius: var(--radius); box-shadow: inset 0 0 0 1.5px var(--paper-edge); }
