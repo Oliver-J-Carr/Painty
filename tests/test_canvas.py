@@ -187,9 +187,45 @@ def test_hex_colours_are_normalised():
 
 def test_agent_view_has_a_ruler_frame():
     canvas = Canvas()
-    png = agent_view_png(canvas.to_svg(), canvas.size)
+    png = agent_view_png(canvas.to_svg(), canvas.width, canvas.height)
     img = Image.open(io.BytesIO(png))
-    assert img.size == (canvas.size + 2 * FRAME, canvas.size + 2 * FRAME)
+    assert img.size == (canvas.width + 2 * FRAME, canvas.height + 2 * FRAME)
+
+
+def test_landscape_and_portrait_canvases_render_at_their_own_size():
+    for shape, size in (("square", (512, 512)), ("landscape", (768, 512)), ("portrait", (512, 768))):
+        canvas = Canvas(shape)
+        canvas.add([make(start=(0, 0), end=(size[0], size[1]), colours=["#00ff00"])])
+        img = Image.open(io.BytesIO(render_png(canvas.to_svg()))).convert("RGB")
+        assert img.size == size
+        assert img.getpixel((size[0] - 1, size[1] - 1)) == (0, 255, 0)  # the far corner is painted
+    assert Canvas("hexagon").info() == {"shape": "square", "width": 512, "height": 512}
+
+
+def test_off_canvas_allowance_follows_each_side():
+    # Half a side past either edge: x on a landscape canvas reaches further than on a square one.
+    good, errors, _ = check_batch(["rectangle 600 10 900 60 #ff0000"], 768, 512)
+    assert len(good) == 1 and not errors
+    good, errors, _ = check_batch(["rectangle 600 10 900 60 #ff0000"], 512, 512)
+    assert not good and "x2 = 900 is too far off the canvas (allowed -256 to 768)" in errors[0]
+    errors, _ = check_shape(make(end=(110, 900)), 768, 512)
+    assert errors == ["y2 = 900 is too far off the canvas (allowed -256 to 768)"]
+    errors, _ = check_shape(make(end=(110, 900)), 512, 768)
+    assert errors == []
+    errors, _ = check_shape(make(end=(110, 1200)), 512, 768)
+    assert errors == ["y2 = 1200 is too far off the canvas (allowed -384 to 1152)"]
+
+
+def test_portrait_agent_view_has_a_ruler_down_its_long_side():
+    canvas = Canvas("portrait")
+    img = Image.open(io.BytesIO(agent_view_png(canvas.to_svg(), canvas.width, canvas.height))).convert("RGB")
+    assert img.size == (512 + 2 * FRAME, 768 + 2 * FRAME)
+    # A grid line at y = 704 (only on the tall canvas) runs across the painting...
+    assert img.getpixel((FRAME + 100, FRAME + 704)) != (255, 255, 255)
+    assert img.getpixel((FRAME + 100, FRAME + 700)) == (255, 255, 255)
+    # ...and the ruler labels it in the left margin (dark text pixels beside the tick).
+    label = img.crop((0, FRAME + 698, FRAME - 7, FRAME + 711))
+    assert min(lo for lo, _ in label.getextrema()) < 130
 
 
 @pytest.mark.parametrize("raw, field, expected", [

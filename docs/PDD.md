@@ -34,10 +34,10 @@ Out of scope for now (see section 12): follow-up prompts on the same canvas, raw
 
 | Decision | Choice | Why |
 |---|---|---|
-| Size | 512 × 512 px, fixed | Simple numbers, cheap image tokens, square. A constant in `canvas.py`, not a setting |
+| Size | Three shapes, chosen per drawing in the New painting dialog: square 512 × 512 (default), landscape 768 × 512 and portrait 512 × 768 | Simple numbers and cheap image tokens. The short side is always 512, so a detail is the same size in pixels on every canvas, and both sides are multiples of the 64 px grid, so the ruler fits exactly. 3:2 sits between 4:3 and 16:9 photos, so a reference image (planned) crops little to fit. `CANVAS_SHAPES` in `canvas.py`, not a setting: the shape is part of what you ask for, like the prompt |
 | Background | Plain white | Like a blank canvas. The agent paints its own background |
 | Origin | (0, 0) top-left, y grows downwards | Every display system works this way (screens draw from the top row down, like reading a page): SVG, PNG pixels, the browser and Paint. Keeping it means the tool coordinates, the SVG and the agent's snapshot all agree, with no flipping and no conversion bugs. Flipping y is a possible "hard mode" later |
-| Off-canvas | Coordinates allowed from −256 to 768; anything past the edge is clipped | Lets the agent bleed shapes off the edge naturally, while catching wild numbers |
+| Off-canvas | Coordinates allowed up to half a side past each edge, per axis (−256 to 768 on a 512 side, −384 to 1152 on a 768 side); anything past the edge is clipped | Lets the agent bleed shapes off the edge naturally, while catching wild numbers |
 
 ## 4. The paint system
 
@@ -131,7 +131,7 @@ A key requirement: the model that paints must see the canvas itself, rather than
 
 ### 5.3 The agent's view: ruler and grid
 
-Vision models judge *where* things are far better than they read exact numbers. So the agent's snapshot is the painting inside a numbered ruler frame (0 to 512 every 64 px, on all four sides) with faint grey grid lines every 64 px. The ruler and grid are in the agent's view only, never in the painting, the browser canvas or the gallery PNG. The tool result tells the agent they aren't paint.
+Vision models judge *where* things are far better than they read exact numbers. So the agent's snapshot is the painting inside a numbered ruler frame (from 0 to the canvas width or height every 64 px, on all four sides) with faint grey grid lines every 64 px. The ruler and grid are in the agent's view only, never in the painting, the browser canvas or the gallery PNG. The tool result tells the agent they aren't paint.
 
 ## 6. Budgets and limits
 
@@ -159,6 +159,7 @@ A drawing copies the settings when it starts, so changing them never changes the
 ## 7. Prompting
 
 - **One prompt per drawing** (v0.1). Free text, up to 500 characters. Each new prompt starts a fresh canvas.
+- The instructions describe the drawing's own canvas: its shape, width, height, corners and centre.
 - The system prompt (`app/prompts/painter.md`) teaches the paint system, coordinates, layering, budget, a working method (plan in pixels, paint back to front in stages, look after each main stage but not after the final touches) and to always end with `finish`. It has a vision-on and a vision-off section.
 - The agent works on its own and never asks questions.
 - Each `paint` call carries a short `note`, shown in the feed, so viewers can follow its plan.
@@ -192,7 +193,8 @@ idle --paint--> painting --finish--------> finished (saved)
 - **Activity feed** (permanent right column): every batch with its note and shape counts, every look with a thumbnail of exactly what the agent saw (click to enlarge), errors, and the finish.
 - **Paused card** with Keep going and Finish here. **Finished card** with title, note, shape and token counts, and a link to the gallery.
 - **Settings drawer** for model, reasoning effort, vision and budgets.
-- **Prompt box in the top bar**, between the brand and the Gallery and Settings buttons, so the canvas and the result cards under it have the column to themselves. There is no status line: while painting, the disabled prompt box's placeholder says what Painty is doing (thinking, painting, looking), and the feed has the detail.
+- **New painting dialog.** The top bar has a New painting button (Stop while painting), then a short status line saying what Painty is doing (thinking, painting, looking) or that the connection dropped; the feed has the detail. The button opens a dialog with the prompt (a textarea: Enter paints, Shift+Enter starts a new line) and the canvas shape. It replaced the single-line prompt box in the top bar, which had no room for more: the dialog leaves space for a reference image and style suggestions. The canvas choice is kept until the page reloads.
+- **Canvas shapes on screen.** The canvas is the biggest of its shape that fits the column. Gallery tiles stay square, with landscape and portrait paintings shown whole inside them.
 - **Gallery navigation:** "← All paintings" sits in the header beside ×, so the two can't be confused. × always closes the gallery; Escape steps back one level (enlarged picture, painting, gallery).
 - **Gallery** with each painting's prompt, settings, budgets used, top-ups, tokens, time, and links to the PNG, SVG and shape log (as the agent wrote it, and as JSON).
 - **Stage viewer** in each gallery painting: the finished painting large, with a strip of every stage under it (one per paint call; click or use the arrow keys to load one into the preview). Looks alone don't tell the story: a model often paints several batches in a row without looking, tracking its layers in its head. Stages the agent looked at get a cadmium border and an eye badge, and a toggle under the preview swaps in exactly what it saw (ruler and grid included). Under the preview there is only one short line (stage and shapes), the same height on every stage so the layout never jumps; clicking the preview enlarges it with the full story: Painty's note for that paint call and what it was checking when it looked. Older paintings, which have no stages, show their looks in a list instead.
@@ -207,8 +209,8 @@ Each painting is a folder under `DATA_DIR/gallery` (in the container, the `paint
 - `shapes.txt`: every shape in paint order, one line each, exactly as the agent wrote it ("Shapes" in the gallery)
 - `shapes.json`: every shape in paint order as parsed data, with its original `text` ("Shapes (JSON)")
 - `looks/look-N.png`: exactly what the agent saw, ruler and grid included
-- `stages/stage-N.png`: the canvas after each paint call that painted something (512 px, no grid). Rendered at save time from the first shapes of the canvas, so painting gets no slower. A look at a blank canvas adds a `stage-0.png`
-- `meta.json`: prompt, title, note, ending, settings, budgets used, top-ups, `shape_format` (`notation`; missing on paintings from before it, which have no `shapes.txt`), tokens (input with the cached share, output with the reasoning share), time, version, `stages` (each with its first and last shape, note and the looks taken there) and `looks` (each look's focus and how many shapes it saw). Paintings from before stages have neither
+- `stages/stage-N.png`: the canvas after each paint call that painted something (canvas size, no grid). Rendered at save time from the first shapes of the canvas, so painting gets no slower. A look at a blank canvas adds a `stage-0.png`
+- `meta.json`: prompt, title, note, ending, `canvas` (shape, width and height; missing on older paintings, which are 512 × 512 square), settings, budgets used, top-ups, `shape_format` (`notation`; missing on paintings from before it, which have no `shapes.txt`), tokens (input with the cached share, output with the reasoning share), time, version, `stages` (each with its first and last shape, note and the looks taken there) and `looks` (each look's focus and how many shapes it saw). Paintings from before stages have neither
 
 Endings: `finished` (the agent called finish), `ended` (it stopped without calling finish, so its last words become the note) and `saved` (you saved it by hand).
 
@@ -226,8 +228,10 @@ Endings: `finished` (the agent called finish), `ended` (it stopped without calli
 - **SVG fallback (plan B).** If the custom system fails badly, try letting the agent describe shapes in SVG-like terms to see whether familiarity is what made the difference. Deliberately not the default, because it defeats the main test.
 - **Hard mode** with an unfamiliar coordinate system (y up, or a non-pixel scale).
 - **Final touches inside `finish`.** An optional `shapes` list on `finish`, painted (same checks, all-or-nothing, same budget) before the drawing ends, so the last batch and the finish share one model call instead of two. An invalid batch would paint nothing and not finish. It saves one mostly-cached call and its reasoning per drawing. Parked: the saving is small now caching works, it changes how the feed and logs show the last batch, and with full JSON shapes it would copy the shape schema into every request. Revisit after the compact shape format, when shapes are short strings. Not parallel tool calls: they would break one tool call per turn everywhere (a `look` could run before a `paint` in the same response lands).
+- **Reference images (next).** Add an image in the New painting dialog. With no text, Painty recreates it; with text, it uses it as the text says (subject, style, palette). The image picks the canvas shape and is cropped to it, then sent once in the first user message, inside the same ruler and grid as `look`, so it stays in the cached history. Saved with the painting in the gallery.
+- Style suggestions in the New painting dialog.
 - Free three-point triangles, polygons or curves.
-- A canvas size or background colour setting.
+- A background colour setting.
 - A side-by-side comparison view. 
 - Deleting gallery items in the app.
 - Local models (for example a vision model on local hardware) through the SDK's model providers.
@@ -263,3 +267,5 @@ Endings: `finished` (the agent called finish), `ended` (it stopped without calli
 | 1 Nov 2026 | Shapes written as one-line text notation instead of JSON; batches painted up to the first bad shape instead of all or nothing |
 | 4 Nov 2026 | Gallery saves a snapshot of every stage (each paint call), and shows them in one strip with the looked-at stages marked and a toggle to what the agent saw |
 | 4 Nov 2026 | Prompt box moved into the top bar, replacing the status line; gallery Back button beside ×, Escape steps back one level |
+| 5 Nov 2026 | Canvas shapes: square 512 × 512 (default), landscape 768 × 512, portrait 512 × 768, chosen per drawing; off-canvas allowance per axis |
+| 5 Nov 2026 | A New painting dialog replaces the top-bar prompt box, with a status line in its place; groundwork for reference images |

@@ -28,7 +28,7 @@ from agents import ItemHelpers, Runner, trace
 from agents.exceptions import MaxTurnsExceeded
 
 from . import __version__
-from .canvas import Canvas
+from .canvas import CANVAS_SHAPES, DEFAULT_SHAPE, Canvas
 from .config import settings as env
 from .context import Budget, PaintyContext, SendEvent
 from .gallery import Gallery, SaveRequest, settings_dict
@@ -84,12 +84,14 @@ class Studio:
         await self._emit({"type": "status", "state": state, **extra})
 
     def hello(self) -> dict:
-        return {"type": "hello", "version": __version__, "canvas_size": Canvas().size,
+        return {"type": "hello", "version": __version__,
+                "canvases": {k: list(v) for k, v in CANVAS_SHAPES.items()},
                 "settings": settings_dict(self.store.current), "options": self.store.options()}
 
     # ------------------------------------------------------------ commands
-    async def start(self, prompt: str) -> None:
-        """Start a brand new drawing on a fresh canvas."""
+    async def start(self, prompt: str, shape: str = DEFAULT_SHAPE) -> None:
+        """Start a brand new drawing on a fresh canvas of the given shape
+        (square, landscape or portrait; anything else means square)."""
         prompt = (prompt or "").strip()[:MAX_PROMPT]
         if not prompt:
             return
@@ -99,6 +101,7 @@ class Studio:
 
         s = self.store.current
         self.ctx = PaintyContext(send=self.send, settings=s, prompt=prompt,
+                                 canvas=Canvas(shape),  # unknown shapes fall back to square
                                  budget=Budget(s.shape_budget, s.look_budget if s.vision else 0))
         self.drawing_id = f"painty_{uuid.uuid4().hex[:12]}"
         self.agent = build_painter_agent(s, self.model, cache_key=self.drawing_id)
@@ -106,11 +109,13 @@ class Studio:
         self.saved_id = None
         self.input_tokens = self.cached_tokens = self.output_tokens = self.reasoning_tokens = 0
 
+        canvas = self.ctx.canvas
         await self._emit({"type": "canvas_reset", "prompt": prompt,
-                          "settings": settings_dict(s)})
+                          "settings": settings_dict(s), **canvas.info()})
         await self.ctx.send_budget()
         await self.ctx.activity("agent", f"🎨 New drawing: {prompt}",
-                                f"{s.model}, vision {'on' if s.vision else 'off'}")
+                                f"{s.model}, vision {'on' if s.vision else 'off'}, "
+                                f"{canvas.shape} {canvas.width} × {canvas.height}")
         self._launch(f"Paint this: {prompt}", label="start")
 
     async def keep_going(self) -> None:
@@ -164,7 +169,7 @@ class Studio:
         try:
             with trace(env.trace_workflow_name, group_id=self.drawing_id,
                        metadata={"app": "painty", "version": __version__, "segment": label,
-                                 "model": ctx.settings.model,
+                                 "model": ctx.settings.model, "canvas": ctx.canvas.shape,
                                  "vision": str(ctx.settings.vision).lower()}):
                 result = await Runner.run(self.agent, run_input, context=ctx,
                                           hooks=self.hooks, max_turns=_turn_limit(ctx.budget))

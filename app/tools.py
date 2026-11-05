@@ -69,7 +69,7 @@ async def paint(ctx: Ctx, shapes: list[str], note: str) -> str:
         return (f"Error: nothing was painted. Only {b.shapes_left} shapes are left in your budget "
                 f"and this batch has {len(texts)}. Choose the most important ones.")
 
-    good, errors, notes = check_batch(texts)
+    good, errors, notes = check_batch(texts, c.canvas.width, c.canvas.height)
     listed = "\n".join(f"- {e}" for e in errors)
     if not good:
         return ("Error: nothing was painted, because of these problems "
@@ -122,7 +122,7 @@ async def look(ctx: Ctx, focus: str) -> list[ToolOutputText | ToolOutputImage]:
         return [ToolOutputText(text="Error: no looks left. Carry on from what you already know, "
                                     "or call finish if the painting is done.")]
 
-    png = agent_view_png(c.canvas.to_svg(), c.canvas.size)
+    png = agent_view_png(c.canvas.to_svg(), c.canvas.width, c.canvas.height)
     b.looks_used += 1
     c.looks.append(Look(png, (focus or "").strip()[:MAX_NOTE], len(c.canvas)))
     url = data_url(png)

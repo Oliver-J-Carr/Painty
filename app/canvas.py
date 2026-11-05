@@ -27,11 +27,24 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-CANVAS_SIZE = 512
+# The canvas shapes a drawing can use: (width, height) in px. The short side is
+# always 512, so details are the same size in pixels on every canvas, and both
+# sides are multiples of the agent's 64 px grid.
+CANVAS_SHAPES: dict[str, tuple[int, int]] = {
+    "square": (512, 512),
+    "landscape": (768, 512),
+    "portrait": (512, 768),
+}
+DEFAULT_SHAPE = "square"
+CANVAS_SIZE = CANVAS_SHAPES[DEFAULT_SHAPE][0]
 BACKGROUND = "#ffffff"
-# Shapes may start or end a little off the canvas (anything outside is clipped).
-COORD_MIN = -CANVAS_SIZE // 2
-COORD_MAX = CANVAS_SIZE + CANVAS_SIZE // 2
+
+
+def coord_range(side: int) -> tuple[int, int]:
+    """Shapes may start or end a little off the canvas (anything outside is
+    clipped): half the side's length past either edge."""
+    return -side // 2, side + side // 2
+
 MIN_AREA_SIDE = 2      # px: smallest width/height for rectangles, ellipses, triangles
 MIN_LINE_LENGTH = 1    # px
 MAX_LINE_THICKNESS = 100
@@ -48,8 +61,8 @@ EXTRAS = ("opacity", "rotation", "thickness", "outline")
 
 # --------------------------------------------------------------------- models
 class Point(BaseModel):
-    x: float = Field(description="Pixels from the left edge. 0 is the left edge, 512 the right edge.")
-    y: float = Field(description="Pixels down from the top edge. 0 is the top edge, 512 the bottom edge.")
+    x: float = Field(description="Pixels from the left edge. 0 is the left edge.")
+    y: float = Field(description="Pixels down from the top edge. 0 is the top edge.")
 
 
 class Fill(BaseModel):
@@ -138,18 +151,21 @@ def normalise_hex(colour: str) -> str | None:
     return c
 
 
-def check_shape(shape: Shape) -> tuple[list[str], list[str]]:
-    """Problems that stop a shape being painted, and harmless notes."""
+def check_shape(shape: Shape, width: int = CANVAS_SIZE,
+                height: int = CANVAS_SIZE) -> tuple[list[str], list[str]]:
+    """Problems that stop a shape being painted on a width x height canvas,
+    and harmless notes."""
     errors: list[str] = []
     notes: list[str] = []
 
-    for name, v in (("x1", shape.start.x), ("y1", shape.start.y),
-                    ("x2", shape.end.x), ("y2", shape.end.y)):
+    for name, v, side in (("x1", shape.start.x, width), ("y1", shape.start.y, height),
+                          ("x2", shape.end.x, width), ("y2", shape.end.y, height)):
+        lo, hi = coord_range(side)
         if not math.isfinite(v):
             errors.append(f"{name} is not a number")
-        elif not COORD_MIN <= v <= COORD_MAX:
+        elif not lo <= v <= hi:
             errors.append(f"{name} = {_fmt(v)} is too far off the canvas "
-                          f"(allowed {COORD_MIN} to {COORD_MAX})")
+                          f"(allowed {lo} to {hi})")
 
     colours = shape.fill.colors
     if not colours:
@@ -298,8 +314,9 @@ def parse_shape(text: str) -> tuple[Shape | None, list[str], list[str]]:
     return shape, [], notes
 
 
-def check_batch(texts: list[str]) -> tuple[list[tuple[str, Shape]], list[str], list[str]]:
-    """Read and check a batch of shapes, in paint order.
+def check_batch(texts: list[str], width: int = CANVAS_SIZE,
+                height: int = CANVAS_SIZE) -> tuple[list[tuple[str, Shape]], list[str], list[str]]:
+    """Read and check a batch of shapes for a width x height canvas, in paint order.
 
     Returns the shapes that can be painted (every shape before the first bad
     one, with its text), every problem in the whole batch, and notes on the
@@ -311,7 +328,7 @@ def check_batch(texts: list[str]) -> tuple[list[tuple[str, Shape]], list[str], l
     for i, text in enumerate(texts, start=1):
         shape, problems, remarks = parse_shape(text)
         if shape is not None:
-            problems, more = check_shape(shape)
+            problems, more = check_shape(shape, width, height)
             remarks += more
         if problems:
             quoted = text if len(text) <= 80 else text[:80] + "…"
@@ -409,8 +426,11 @@ def shape_svg(n: int, shape: Shape) -> str:
 class Canvas:
     """The painting so far. Shapes are only ever added, never removed."""
 
-    def __init__(self, size: int = CANVAS_SIZE, background: str = BACKGROUND) -> None:
-        self.size = size
+    def __init__(self, shape: str = DEFAULT_SHAPE, background: str = BACKGROUND) -> None:
+        if shape not in CANVAS_SHAPES:
+            shape = DEFAULT_SHAPE
+        self.shape = shape
+        self.width, self.height = CANVAS_SHAPES[shape]
         self.background = background
         self.shapes: list[PaintedShape] = []
 
@@ -432,12 +452,16 @@ class Canvas:
     def to_svg(self, upto: int | None = None) -> str:
         """The painting as one SVG. upto: only the first `upto` shapes (a stage
         snapshot); None means all of them."""
-        s = self.size
+        w, h = self.width, self.height
         shapes = self.shapes if upto is None else self.shapes[:upto]
         body = "".join(ps.svg for ps in shapes)
-        return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {s} {s}" '
-                f'width="{s}" height="{s}">'
-                f'<rect width="{s}" height="{s}" fill="{self.background}"/>{body}</svg>')
+        return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}" '
+                f'width="{w}" height="{h}">'
+                f'<rect width="{w}" height="{h}" fill="{self.background}"/>{body}</svg>')
+
+    def info(self) -> dict:
+        """The canvas shape and size, for the browser and meta.json."""
+        return {"shape": self.shape, "width": self.width, "height": self.height}
 
     def shape_log(self) -> list[dict]:
         """Every shape in paint order, as plain data (saved with the painting)."""

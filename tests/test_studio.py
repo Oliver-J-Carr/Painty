@@ -327,6 +327,49 @@ def test_instructions_stay_the_same_within_a_run(tmp_path):
                for c in model.calls)
 
 
+def test_a_portrait_drawing_uses_a_tall_canvas_everywhere(tmp_path):
+    steps = [
+        [paint([rect(0, 0, 512, 768, "#87ceeb"), rect(0, 700, 512, 768, "#00aa00")], "c1")],
+        [look("c2")],
+        [finish("c3")],
+    ]
+    studio, model, events = make_studio(tmp_path, steps)
+
+    async def go():
+        await studio.start("a tall tree", "portrait")
+        await _wait(studio)
+    run(go)
+
+    assert studio.state == "finished" and len(studio.ctx.canvas) == 2
+    reset = types(events, "canvas_reset")[0]
+    assert (reset["shape"], reset["width"], reset["height"]) == ("portrait", 512, 768)
+
+    # The prompt describes the real canvas, with no placeholder left unfilled.
+    instructions = model.calls[0].system_instructions
+    assert "portrait (taller than wide) canvas, 512 pixels wide and 768 pixels tall" in instructions
+    assert "(512, 768) the bottom-right" in instructions and "The centre is (256, 384)" in instructions
+    assert "{{" not in instructions
+
+    folder = tmp_path / "gallery" / types(events, "status")[-1]["saved_id"]
+    meta = json.loads((folder / "meta.json").read_text())
+    assert meta["canvas"] == {"shape": "portrait", "width": 512, "height": 768}
+    assert Image.open(folder / "painting.png").size == (1024, 1536)
+    assert _px(folder / "stages" / "stage-1.png", 10, 750) == (0, 170, 0)
+
+
+def test_unknown_canvas_shape_falls_back_to_square(tmp_path):
+    studio, _, events = make_studio(tmp_path, [[finish("c1")]])
+
+    async def go():
+        await studio.start("anything", "hexagon")
+        await _wait(studio)
+    run(go)
+
+    assert studio.ctx.canvas.info() == {"shape": "square", "width": 512, "height": 512}
+    assert studio.hello()["canvases"] == {"square": [512, 512], "landscape": [768, 512],
+                                          "portrait": [512, 768]}
+
+
 def test_vision_off_has_no_look_tool(tmp_path):
     steps = [[paint([rect(0, 0, 100, 100)], "c1")], [finish("c2")]]
     studio, model, _ = make_studio(tmp_path, steps, vision=False)

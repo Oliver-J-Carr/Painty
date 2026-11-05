@@ -3,13 +3,13 @@
 Each painting gets its own folder under DATA_DIR/gallery:
 
     20261031-114502-sunny-face/
-        painting.png      clean painting at 2x (1024 px), for sharing
+        painting.png      clean painting at 2x (1024 px wide for a square), for sharing
         painting.svg      the same painting as SVG
         shapes.txt        every shape in paint order, as the model wrote it
         shapes.json       every shape in paint order, as parsed data
         stages/stage-1.png  the canvas after each paint call (512 px, no grid)
         looks/look-1.png  exactly what the agent saw on each look (grid included)
-        meta.json         prompt, title, note, settings, budgets used, tokens
+        meta.json         prompt, title, note, canvas, settings, budgets used, tokens
 
 Plain files, no database: easy to browse, copy, zip or delete by hand.
 """
@@ -91,6 +91,8 @@ class Gallery:
             "note": req.note,
             "prompt": req.prompt,
             "ending": req.ending,
+            # The canvas shape and size. Older paintings have none: 512 x 512 square.
+            "canvas": req.canvas.info(),
             "created_at": now,
             "duration_s": round(now - req.started_at, 1) if req.started_at else None,
             "settings": req.settings,

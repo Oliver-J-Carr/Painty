@@ -5,7 +5,7 @@ Guidance for AI coding agents working on Painty. Read this before changing code.
 ## What Painty is
 
 - An experiment: can a language model adapt to a paint system it has never seen, and paint a recognisable picture from a text prompt?
-- The agent paints with shape tool calls (line, rectangle, ellipse, triangle) on a fixed 512 × 512 canvas, and, with vision on, looks at PNG snapshots of its own work.
+- The agent paints with shape tool calls (line, rectangle, ellipse, triangle) on a square (512 × 512), landscape (768 × 512) or portrait (512 × 768) canvas, and, with vision on, looks at PNG snapshots of its own work.
 - FastAPI backend running the OpenAI Agents SDK. Vanilla HTML/CSS/JS front end. One container. A sibling project to Matey and built the same way.
 - Browser and server talk over a single WebSocket (`/ws`).
 
@@ -115,19 +115,19 @@ docker image prune
 ## WebSocket protocol
 
 - Browser to server:
-  - `{"type": "paint", "prompt": "..."}`: start a new drawing (max 500 characters).
+  - `{"type": "paint", "prompt": "...", "canvas": "square"}`: start a new drawing (max 500 characters). `canvas` is `square`, `landscape` or `portrait`; anything else means square.
   - `{"type": "keep_going"}`: top up a paused drawing and carry on.
   - `{"type": "stop"}`: cancel the running drawing.
   - `{"type": "save"}`: save a paused, stopped or failed drawing to the gallery.
   - `{"type": "settings", "settings": {...}}`: update settings (refused while painting).
 - Server to browser:
-  - `hello`: `version`, `canvas_size`, `settings`, `options` (models, efforts, limits).
-  - `canvas_reset`: a new drawing started (`prompt`, `settings`). Clear the canvas and feed.
+  - `hello`: `version`, `canvases` (`{shape: [width, height]}`), `settings`, `options` (models, efforts, limits).
+  - `canvas_reset`: a new drawing started (`prompt`, `settings`, `shape`, `width`, `height`). Clear and resize the canvas, and clear the feed.
   - `shapes`: `shapes` as `[{n, svg}]` in paint order, plus `key` (the tool call id).
   - `look`: `key`, `n`, `focus` and `image` (a PNG data URL of exactly what the agent saw).
   - `budget`: shapes and looks used, total and left, and `top_ups`.
   - `status`: `state` of `painting`, `paused` (`reason`, `top_up`), `finished` (`title`, `note`, `ending`, `saved_id`, `meta`, `tokens`), `stopped` or `error` (`reason`).
-  - `phase`: `thinking`, `paint`, `look` or `finish`, shown in the prompt box's placeholder while painting.
+  - `phase`: `thinking`, `paint`, `look` or `finish`, shown in the top bar's status line while painting.
   - `activity`: feed entries. Tool entries share a `key` and go from `running` to `done` or `error`.
   - `settings`: the current settings after an update.
   - `error`: a short message for a toast.

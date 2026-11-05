@@ -12,6 +12,9 @@ from .tools import tools_for
 
 PAUSED = "paused: shape budget used up"
 
+SHAPE_WORDS = {"square": "square", "landscape": "landscape (wider than tall)",
+               "portrait": "portrait (taller than wide)"}
+
 
 def _instructions(ctx: RunContextWrapper[PaintyContext], agent: Agent) -> str:
     """Dynamic instructions, so the totals are right after a "keep going" top-up.
@@ -22,9 +25,10 @@ def _instructions(ctx: RunContextWrapper[PaintyContext], agent: Agent) -> str:
     """
     c = ctx.context
     b = c.budget
-    size = c.canvas.size
+    w, h = c.canvas.width, c.canvas.height
     vision = fill(VISION_ON, LOOKS=b.looks_total) if c.settings.vision else VISION_OFF
-    return fill(PAINTER_PROMPT, SIZE=size, HALF=size // 2, SHAPES=b.shapes_total,
+    return fill(PAINTER_PROMPT, SHAPE_WORD=SHAPE_WORDS[c.canvas.shape], WIDTH=w, HEIGHT=h,
+                CX=w // 2, CY=h // 2, SHAPES=b.shapes_total,
                 MAX_PER_CALL=c.settings.max_shapes_per_call, VISION_SECTION=vision)
 
 

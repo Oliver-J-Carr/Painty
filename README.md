@@ -2,13 +2,14 @@
 
 **Can an AI agent learn to paint with a tool it has never seen?**
 
-Painty gives an agent a blank 512 × 512 canvas and four shapes: line, rectangle, ellipse and triangle. You type what you want, such as *"a ginger cat sitting in the sun"* or *"a stripy tiger with blue and green stripes"*. The agent paints it one tool call at a time, layering shapes like real paint. With vision on, it can stop and look at its own work, then fix what it doesn't like.
+Painty gives an agent a blank canvas (square, landscape or portrait) and four shapes: line, rectangle, ellipse and triangle. Click **New painting**, pick the canvas shape and type what you want, such as *"a ginger cat sitting in the sun"* or *"a stripy tiger with blue and green stripes"*. The agent paints it one tool call at a time, layering shapes like real paint. With vision on, it can stop and look at its own work, then fix what it doesn't like.
 
 It's an experiment in agent adaptation. The agent can't fall back on SVG or CSS it memorised in training. It has to learn a new, custom paint system from its instructions and turn what it knows about cats, faces and tigers into coordinates and layers.
 
 ## Key features
 
 - **A custom paint system.** Shapes are drawn by "dragging" from one corner to another, like Microsoft Paint. They can be turned to any angle, filled with flat colour or linear and radial blends, given outlines, and made see-through for shading and highlights.
+- **Three canvas shapes.** Square (512 × 512), landscape (768 × 512) or portrait (512 × 768), chosen for each painting.
 - **Paint is permanent.** Every shape covers what's beneath it. There's no undo or eraser, so mistakes are fixed by painting over them.
 - **The agent can see its own work.** Each look sends a PNG snapshot to the *same* model doing the painting, with a ruler and grid in its view to help it map what it sees to coordinates.
 - **Vision on or off.** Run the same prompt with and without sight and compare the results.
@@ -44,7 +45,7 @@ You need Docker with the Compose plugin and an OpenAI API key.
    ```bash
    docker compose up -d --build
    ```
-5. Open <http://127.0.0.1:8091> and ask Painty for a picture.
+5. Open <http://127.0.0.1:8091>, click **New painting** and ask Painty for a picture.
 
 Paintings and settings are kept in the `painty-data` Docker volume, so they survive rebuilds. Download any painting from the gallery, or copy the whole gallery out with `docker cp painty:/srv/data/gallery ./gallery-export`.
 
@@ -91,6 +92,8 @@ The design and the reasons behind it are in [`docs/PDD.md`](docs/PDD.md). In sho
 - More shapes or paint options, such as free three-point triangles or curves.
 - Deleting paintings from the gallery in the app.
 - A side-by-side comparison view for vision on and off.
+- Reference images: add a picture for Painty to recreate, or to use as a reference for something else.
+- Style suggestions when starting a painting.
 
 ## Licence
 

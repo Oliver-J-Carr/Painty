@@ -20,13 +20,11 @@
         <rect x="41" y="1" width="12" height="12" fill="#2f7fd8"/>
       </svg>
     </div>
-    <form class="composer" id="composer" autocomplete="off">
-      <label for="prompt" class="visually-hidden">What should Painty paint?</label>
-      <input id="prompt" name="prompt" type="text" maxlength="500"
-             placeholder="Try: a ginger cat sitting in the sun" disabled>
-      <button type="submit" class="primary" id="paint" disabled>Paint</button>
+    <div class="topbar-main">
+      <button type="button" class="primary" id="new-painting" aria-haspopup="dialog" disabled>New painting</button>
       <button type="button" class="stop" id="stop" hidden>Stop</button>
-    </form>
+      <p class="status" id="status" aria-live="polite"></p>
+    </div>
     <nav class="topbar-actions">
       <button type="button" class="ghost" id="open-gallery">Gallery</button>
       <button type="button" class="ghost" id="open-settings" aria-expanded="false" aria-controls="settings">Settings</button>
@@ -90,9 +88,36 @@
     <aside class="feed" aria-label="Agent activity">
       <h2 class="feed-head">What Painty is doing</h2>
       <ol class="feed-list" id="feed-list"></ol>
-      <p class="feed-empty" id="feed-empty">Describe a picture and every brush stroke, look and decision shows up here.</p>
+      <p class="feed-empty" id="feed-empty">Start a new painting and every brush stroke, look and decision shows up here.</p>
     </aside>
   </main>
+
+  <!-- New painting -->
+  <dialog class="dialog" id="new-dialog" aria-labelledby="new-title">
+    <form id="new-form" class="new-form" autocomplete="off">
+      <div class="drawer-head">
+        <h2 id="new-title">New painting</h2>
+        <button type="button" class="close" id="close-new" aria-label="Close">×</button>
+      </div>
+      <label for="prompt" class="field-label">What should Painty paint?</label>
+      <textarea id="prompt" name="prompt" maxlength="500" rows="4"
+                placeholder="Try: a ginger cat sitting in the sun"></textarea>
+      <p class="field-help"><span id="prompt-count">0</span> / 500 · Enter paints, Shift+Enter starts a new line</p>
+      <fieldset class="canvas-choice">
+        <legend class="field-label">Canvas</legend>
+        <label><input type="radio" name="canvas" value="square" checked>
+          <span class="shape-icon" aria-hidden="true"></span><span>Square</span><small data-size="square"></small></label>
+        <label><input type="radio" name="canvas" value="landscape">
+          <span class="shape-icon" aria-hidden="true"></span><span>Landscape</span><small data-size="landscape"></small></label>
+        <label><input type="radio" name="canvas" value="portrait">
+          <span class="shape-icon" aria-hidden="true"></span><span>Portrait</span><small data-size="portrait"></small></label>
+      </fieldset>
+      <div class="dialog-actions">
+        <button type="button" class="ghost-dark" id="cancel-new">Cancel</button>
+        <button type="submit" class="primary" id="paint" disabled>Paint</button>
+      </div>
+    </form>
+  </dialog>
 
   <!-- Settings drawer -->
   <aside class="drawer" id="settings" aria-label="Settings" hidden>

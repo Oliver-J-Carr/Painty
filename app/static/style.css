@@ -19,6 +19,7 @@
   --ui: "Recursive", system-ui, sans-serif;
   --radius: 6px;
   --gutter: 16px;
+  --ratio: 1; /* the canvas shape, width / height; set from JS for each drawing */
 }
 
 * { box-sizing: border-box; }
@@ -42,7 +43,7 @@ body {
   background-position: -1px -1px;
 }
 
-button, input, select { font: inherit; }
+button, input, select, textarea { font: inherit; }
 :focus-visible { outline: 3px solid var(--cadmium); outline-offset: 2px; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
@@ -55,6 +56,9 @@ button, input, select { font: inherit; }
 .brand-name { font: 600 28px/1 var(--pixel); color: var(--cadmium); letter-spacing: 0.02em; }
 .brand-shapes { width: 54px; height: 14px; }
 .topbar-actions { display: flex; gap: 8px; }
+.topbar-main { flex: 1; min-width: 0; max-width: 760px; margin: 0 auto; display: flex; align-items: center; gap: 14px; }
+.topbar-main .primary, .topbar-main .stop { flex: none; padding: 10px 18px; }
+.status { margin: 0; min-width: 0; color: rgba(247, 247, 242, 0.85); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .ghost, .ghost-dark, .primary, .stop, .close {
   border: 0; border-radius: var(--radius); cursor: pointer; padding: 8px 16px; font-weight: 600;
@@ -81,22 +85,23 @@ button, input, select { font: inherit; }
 .easel { display: flex; flex-direction: column; align-items: center; min-height: 0; }
 .easel-scroll { flex: 1; min-height: 0; width: 100%; overflow-y: auto; display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 8px 0; }
 /* The canvas area takes whatever height the meters and any result card leave, and the canvas is
-   the biggest square that fits in it. So a card appearing shrinks the canvas a little instead of
-   making the column scroll; it only scrolls once the canvas would drop below 300 px. */
+   the biggest one of its shape (--ratio, width / height) that fits in it. So a card appearing
+   shrinks the canvas a little instead of making the column scroll; it only scrolls once the
+   canvas would drop below 300 px. The short side is capped at 640 px. */
 .canvas-area { width: 100%; display: flex; justify-content: center; flex: none; }
 .canvas-wrap {
-  width: min(100%, 640px);
-  aspect-ratio: 1;
+  width: min(100%, calc(640px * max(1, var(--ratio))));
   flex: none;
   padding: 10px;
   background: #fbfbf8;
   border-radius: 2px;
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.4) inset, 0 18px 30px -12px rgba(8, 26, 19, 0.65), 0 2px 4px rgba(8, 26, 19, 0.35);
 }
-.canvas { display: block; width: 100%; height: 100%; }
+.canvas { display: block; width: 100%; height: auto; aspect-ratio: var(--ratio); }
 @media (min-width: 861px) {
   .canvas-area { flex: 1 0 300px; min-height: 300px; container-type: size; }
-  .canvas-wrap { width: min(100cqw, 100cqh, 640px); }
+  /* 20px is the frame's padding, top and bottom or left and right. */
+  .canvas-wrap { width: min(100cqw, calc((100cqh - 20px) * var(--ratio) + 20px), calc(620px * max(1, var(--ratio)) + 20px)); }
   .easel-scroll > :not(.canvas-area) { flex: none; }
 }
 .canvas g[data-n] { animation: lay 0.22s ease-out both; }
@@ -130,13 +135,36 @@ button, input, select { font: inherit; }
 .painting-title { margin: 0; font-size: 22px; font-weight: 700; font-variation-settings: "CASL" 1; flex: 1 1 auto; }
 .painting-note { margin: 4px 0 0; font-variation-settings: "CASL" 1; max-height: 6em; overflow-y: auto; }
 
-/* ---------- composer (in the top bar) ---------- */
-.composer { flex: 1; min-width: 0; max-width: 760px; margin: 0 auto; display: flex; gap: 10px; }
-.composer input {
-  flex: 1; min-width: 0; padding: 11px 14px; border-radius: var(--radius);
-  border: 0; background: var(--paper); color: var(--graphite);
+/* ---------- new painting dialog ---------- */
+.dialog {
+  width: min(560px, calc(100vw - 2 * var(--gutter))); max-height: calc(100vh - 2 * var(--gutter));
+  padding: 0; border: 0; border-radius: var(--radius);
+  background: var(--paper); color: var(--graphite);
+  box-shadow: 0 24px 60px rgba(8, 26, 19, 0.55);
 }
-.composer input:disabled { opacity: 0.7; }
+.dialog::backdrop { background: rgba(15, 32, 25, 0.72); }
+.new-form { padding: 18px 22px 20px; }
+.field-label { display: block; font-weight: 700; margin: 12px 0 6px; padding: 0; }
+.new-form textarea {
+  display: block; width: 100%; resize: vertical; min-height: 96px; padding: 10px 12px;
+  border-radius: 4px; border: 1px solid #b9bcb2; background: #fff; color: var(--graphite);
+}
+.field-help { margin: 4px 0 0; color: var(--graphite-soft); font-size: 13px; }
+.canvas-choice { border: 0; margin: 4px 0 0; padding: 0; display: flex; gap: 10px; flex-wrap: wrap; }
+.canvas-choice label {
+  flex: 1 1 120px; display: grid; justify-items: center; gap: 4px; padding: 12px 8px 10px;
+  border-radius: var(--radius); box-shadow: inset 0 0 0 1.5px var(--paper-edge); cursor: pointer; font-weight: 600;
+}
+.canvas-choice label:has(input:checked) { box-shadow: inset 0 0 0 2px var(--graphite); background: #fff; }
+.canvas-choice label:has(input:focus-visible) { outline: 3px solid var(--cadmium); outline-offset: 2px; }
+.canvas-choice input { position: absolute; opacity: 0; pointer-events: none; }
+.canvas-choice small { color: var(--graphite-soft); font-weight: 400; font-size: 12px; }
+/* Each icon is its canvas in miniature: 3:2, 2:3 or square, inside the same 32 px box. */
+.shape-icon { width: 24px; height: 24px; margin: 4px 0; border-radius: 2px; background: #fff; box-shadow: 0 0 0 1.5px var(--graphite); }
+.canvas-choice input[value="landscape"] + .shape-icon { width: 32px; height: 21px; margin: 7.5px 0; }
+.canvas-choice input[value="portrait"] + .shape-icon { width: 21px; height: 32px; margin: 0; }
+.canvas-choice label:has(input:checked) .shape-icon { background: var(--cadmium); }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
 
 /* ---------- activity feed ---------- */
 .feed {
@@ -203,7 +231,8 @@ button, input, select { font: inherit; }
   display: grid; grid-row: span 2; grid-template-rows: subgrid; align-content: start;
   border: 0; padding: 0 0 20px; background: none; text-align: left; cursor: pointer; color: inherit;
 }
-.gallery-card img { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; box-shadow: 0 0 0 1px var(--paper-edge), 0 6px 14px -8px rgba(0, 0, 0, 0.4); }
+/* Square tiles; a landscape or portrait painting sits inside its tile uncropped. */
+.gallery-card img { display: block; width: 100%; aspect-ratio: 1; object-fit: contain; background: #ecece4; box-shadow: 0 0 0 1px var(--paper-edge), 0 6px 14px -8px rgba(0, 0, 0, 0.4); }
 .gallery-text { padding-top: 8px; min-width: 0; }
 .gallery-card h3 { margin: 0; font-size: 15px; font-weight: 700; font-variation-settings: "CASL" 1; }
 .gallery-card p { margin: 2px 0 0; font-size: 13px; overflow-wrap: anywhere; }
@@ -236,7 +265,7 @@ button, input, select { font: inherit; }
   .gallery-detail.has-stages > :last-child { min-height: 0; overflow-y: auto; padding-right: 4px; }
   .stage-viewer { height: 100%; display: flex; flex-direction: column; }
   .stage-frame { flex: 1; min-height: 200px; container-type: size; }
-  .stage-preview { width: min(100cqw, 100cqh); }
+  .stage-preview { width: min(100cqw, calc(100cqh * var(--ratio))); }
   .stage-strip, .stage-info-row { flex: none; }
 }
 .stage-preview .big { display: block; }
@@ -254,7 +283,7 @@ button, input, select { font: inherit; }
   position: relative; flex: none; width: 76px; padding: 0; border: 0; background: none; cursor: pointer;
   color: var(--graphite-soft); font-size: 12px; font-weight: 600; text-align: center;
 }
-.stage-thumb img { display: block; width: 76px; height: 76px; border-radius: 3px; box-shadow: 0 0 0 1px var(--paper-edge); }
+.stage-thumb img { display: block; width: 76px; height: 76px; object-fit: contain; background: #ecece4; border-radius: 3px; box-shadow: 0 0 0 1px var(--paper-edge); }
 .stage-label { display: block; margin-top: 3px; }
 .stage-thumb.looked img { box-shadow: 0 0 0 3px var(--cadmium); }
 .stage-thumb[aria-pressed="true"] { color: var(--graphite); }
@@ -270,7 +299,7 @@ button, input, select { font: inherit; }
 /* Darker than the gallery's backdrop, so the notes under the picture are easy to read. */
 #lightbox { background: rgba(6, 14, 11, 0.93); }
 /* Sized so the caption and notes fit under the picture without scrolling. */
-.lightbox-figure { margin: auto; width: min(720px, 100%, max(280px, calc(100vh - 260px))); }
+.lightbox-figure { margin: auto; width: min(calc(720px * max(1, var(--ratio))), 100%, max(280px, calc((100vh - 260px) * var(--ratio)))); }
 .lightbox-figure img { display: block; width: 100%; border-radius: 3px; }
 .lightbox-figure figcaption { color: var(--paper); margin-top: 12px; text-align: center; }
 .lightbox-figure figcaption p { margin: 0; }
@@ -290,7 +319,7 @@ button, input, select { font: inherit; }
 /* ---------- small screens: stack the feed under the easel ---------- */
 @media (max-width: 860px) {
   .topbar { flex-wrap: wrap; padding: 12px var(--gutter); gap: 10px 16px; }
-  .composer { order: 3; flex-basis: 100%; max-width: none; }
+  .topbar-main { order: 3; flex-basis: 100%; max-width: none; }
   html, body { height: auto; min-height: 100%; }
   .studio { grid-template-columns: 1fr; grid-template-rows: none; flex: none; padding: 4px var(--gutter) var(--gutter); }
   .easel-scroll { overflow: visible; }

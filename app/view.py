@@ -16,7 +16,7 @@ import io
 import resvg_py
 from PIL import Image, ImageDraw, ImageFont
 
-GRID_STEP = 64          # px between grid lines (8 x 8 cells on a 512 canvas)
+GRID_STEP = 64          # px between grid lines (8 cells across 512 px)
 FRAME = 30              # px of ruler margin around the painting
 FRAME_COLOUR = (236, 233, 226)
 TICK_COLOUR = (90, 90, 90)
@@ -28,35 +28,36 @@ def render_png(svg: str, zoom: float = 1.0) -> bytes:
     return bytes(resvg_py.svg_to_bytes(svg_string=svg, zoom=zoom))
 
 
-def agent_view_png(svg: str, size: int) -> bytes:
+def agent_view_png(svg: str, width: int, height: int) -> bytes:
     """The painting as the agent sees it: ruler frame plus faint grid."""
     painting = Image.open(io.BytesIO(render_png(svg))).convert("RGBA")
-    full = size + 2 * FRAME
-    view = Image.new("RGBA", (full, full), FRAME_COLOUR + (255,))
+    view = Image.new("RGBA", (width + 2 * FRAME, height + 2 * FRAME), FRAME_COLOUR + (255,))
     view.paste(painting, (FRAME, FRAME))
 
     grid = Image.new("RGBA", view.size, (0, 0, 0, 0))
     g = ImageDraw.Draw(grid)
-    for v in range(GRID_STEP, size, GRID_STEP):
-        g.line([(FRAME + v, FRAME), (FRAME + v, FRAME + size - 1)], fill=GRID_COLOUR, width=1)
-        g.line([(FRAME, FRAME + v), (FRAME + size - 1, FRAME + v)], fill=GRID_COLOUR, width=1)
+    for x in range(GRID_STEP, width, GRID_STEP):
+        g.line([(FRAME + x, FRAME), (FRAME + x, FRAME + height - 1)], fill=GRID_COLOUR, width=1)
+    for y in range(GRID_STEP, height, GRID_STEP):
+        g.line([(FRAME, FRAME + y), (FRAME + width - 1, FRAME + y)], fill=GRID_COLOUR, width=1)
     view = Image.alpha_composite(view, grid)
 
     d = ImageDraw.Draw(view)
     font = ImageFont.load_default(size=11)
-    for v in range(0, size + 1, GRID_STEP):
-        p = FRAME + v
-        label = str(v)
-        # ticks on all four sides
+    # x: ticks and labels above and below
+    for x in range(0, width + 1, GRID_STEP):
+        p = FRAME + x
         d.line([(p, FRAME - 5), (p, FRAME - 1)], fill=TICK_COLOUR)
-        d.line([(p, FRAME + size), (p, FRAME + size + 4)], fill=TICK_COLOUR)
+        d.line([(p, FRAME + height), (p, FRAME + height + 4)], fill=TICK_COLOUR)
+        d.text((p, FRAME - 7), str(x), fill=TICK_COLOUR, font=font, anchor="mb")
+        d.text((p, FRAME + height + 6), str(x), fill=TICK_COLOUR, font=font, anchor="mt")
+    # y: ticks and labels left and right
+    for y in range(0, height + 1, GRID_STEP):
+        p = FRAME + y
         d.line([(FRAME - 5, p), (FRAME - 1, p)], fill=TICK_COLOUR)
-        d.line([(FRAME + size, p), (FRAME + size + 4, p)], fill=TICK_COLOUR)
-        # x labels above and below, y labels left and right
-        d.text((p, FRAME - 7), label, fill=TICK_COLOUR, font=font, anchor="mb")
-        d.text((p, FRAME + size + 6), label, fill=TICK_COLOUR, font=font, anchor="mt")
-        d.text((FRAME - 7, p), label, fill=TICK_COLOUR, font=font, anchor="rm")
-        d.text((FRAME + size + 6, p), label, fill=TICK_COLOUR, font=font, anchor="lm")
+        d.line([(FRAME + width, p), (FRAME + width + 4, p)], fill=TICK_COLOUR)
+        d.text((FRAME - 7, p), str(y), fill=TICK_COLOUR, font=font, anchor="rm")
+        d.text((FRAME + width + 6, p), str(y), fill=TICK_COLOUR, font=font, anchor="lm")
 
     out = io.BytesIO()
     view.convert("RGB").save(out, format="PNG", optimize=True)

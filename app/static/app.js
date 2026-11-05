@@ -19,9 +19,9 @@ let state = "connecting";
 let shapesOnCanvas = 0;
 let savedId = null;
 
-// ------------------------------------------------------------------ prompt box hint
-// There's no status line: while painting (or reconnecting) the disabled prompt box's
-// placeholder says what's happening instead.
+// ------------------------------------------------------------------ status line
+// The short line in the top bar: what Painty is doing while it paints, or that the
+// connection dropped. Empty otherwise; the feed and the result cards say the rest.
 const PHASES = {
   thinking: "Thinking…",
   paint: "Painting…",
@@ -38,10 +38,8 @@ const STATES = {
   error: "The drawing failed.",
 };
 
-const PROMPT_HINT = $("prompt").placeholder;
-
 function setStatus(text) {
-  $("prompt").placeholder = text || PROMPT_HINT;
+  $("status").textContent = text || "";
 }
 
 // ------------------------------------------------------------------ canvas
@@ -71,6 +69,17 @@ function pump() {
 function clearCanvas() {
   shapeQueue.length = 0;
   layer.replaceChildren();
+}
+
+// The canvas shapes the server offers, {square: [512, 512], ...}, from hello.
+let canvases = { square: [512, 512] };
+
+function setCanvasSize(width, height) {
+  $("canvas").setAttribute("viewBox", `0 0 ${width} ${height}`);
+  const bg = $("canvas").querySelector("rect");
+  bg.setAttribute("width", width);
+  bg.setAttribute("height", height);
+  document.querySelector(".canvas-wrap").style.setProperty("--ratio", width / height);
 }
 
 // ------------------------------------------------------------------ meters
@@ -170,10 +179,10 @@ function applyState(e) {
   const painting = state === "painting";
   setStatus(painting ? PHASES.thinking : "");
 
-  $("prompt").disabled = painting;
-  $("paint").hidden = painting;
-  $("paint").disabled = painting;
+  $("new-painting").hidden = painting;
+  $("new-painting").disabled = painting;
   $("stop").hidden = !painting;
+  if (painting && $("new-dialog").open) $("new-dialog").close();
   lockSettings(painting);
 
   show("paused", state === "paused");
@@ -204,6 +213,7 @@ function onCanvasReset(e) {
   clearCanvas();
   clearFeed();
   savedId = null;
+  setCanvasSize(e.width, e.height);
   $("prompt-shown").textContent = `“${e.prompt}”`;
   $("prompt-shown").hidden = false;
 }
@@ -220,10 +230,10 @@ function connect() {
   ws.addEventListener("close", () => {
     state = "connecting";
     setStatus("Disconnected. Reconnecting…");
-    $("prompt").disabled = true;
-    $("paint").disabled = true;
+    $("new-painting").disabled = true;
+    $("new-painting").hidden = false;
     $("stop").hidden = true;
-    $("paint").hidden = false;
+    updatePaintButton();
     setTimeout(connect, 2000);
   });
 }
@@ -236,11 +246,16 @@ function handle(e) {
       clearFeed();
       $("prompt-shown").hidden = true;
       setupSettings(e.options, e.settings);
-      setCanvasSize(e.canvas_size);
+      canvases = e.canvases;
+      for (const [name, [w, h]] of Object.entries(canvases)) {
+        const size = document.querySelector(`[data-size="${name}"]`);
+        if (size) size.textContent = `${w} × ${h}`;
+      }
+      setCanvasSize(...canvases.square);
       previewBudget(e.settings);
       applyState({ state: "idle" });
-      $("prompt").disabled = false;
-      $("paint").disabled = false;
+      $("new-painting").disabled = false;
+      updatePaintButton();
       break;
     case "status": applyState(e); break;
     case "phase": if (state === "painting") setStatus(PHASES[e.phase] || "Painting…"); break;
@@ -254,22 +269,49 @@ function handle(e) {
   }
 }
 
-function setCanvasSize(size) {
-  $("canvas").setAttribute("viewBox", `0 0 ${size} ${size}`);
-  const bg = $("canvas").querySelector("rect");
-  bg.setAttribute("width", size);
-  bg.setAttribute("height", size);
+// ------------------------------------------------------------------ new painting dialog
+// The canvas choice is kept between drawings (until the page reloads); the prompt is cleared.
+const dialog = $("new-dialog");
+const newForm = $("new-form");
+
+function updatePaintButton() {
+  const length = $("prompt").value.length;
+  $("prompt-count").textContent = String(length);
+  $("paint").disabled = !$("prompt").value.trim() || state === "connecting" || state === "painting";
 }
 
-// ------------------------------------------------------------------ composer + buttons
-$("composer").addEventListener("submit", (ev) => {
+function openNewPainting() {
+  if (state === "painting" || state === "connecting") return;
+  updatePaintButton();
+  dialog.showModal();
+  $("prompt").focus();
+}
+
+$("new-painting").addEventListener("click", openNewPainting);
+$("close-new").addEventListener("click", () => dialog.close());
+$("cancel-new").addEventListener("click", () => dialog.close());
+// A click on the backdrop lands on the dialog itself (the form fills the box).
+dialog.addEventListener("click", (ev) => { if (ev.target === dialog) dialog.close(); });
+$("prompt").addEventListener("input", updatePaintButton);
+$("prompt").addEventListener("keydown", (ev) => {
+  if (ev.key === "Enter" && !ev.shiftKey && !ev.isComposing) {
+    ev.preventDefault();
+    newForm.requestSubmit();
+  }
+});
+
+newForm.addEventListener("submit", (ev) => {
   ev.preventDefault();
   const prompt = $("prompt").value.trim();
-  if (!prompt || state === "painting") return;
+  if (!prompt || state === "painting" || state === "connecting") return;
   if (state === "paused" && !confirm("Start a new drawing? The paused one hasn't been saved.")) return;
-  send({ type: "paint", prompt });
+  send({ type: "paint", prompt, canvas: newForm.elements.canvas.value });
   $("prompt").value = "";
+  updatePaintButton();
+  dialog.close();
 });
+
+// ------------------------------------------------------------------ buttons
 $("stop").addEventListener("click", () => send({ type: "stop" }));
 $("keep-going").addEventListener("click", () => send({ type: "keep_going" }));
 $("finish-here").addEventListener("click", () => send({ type: "save" }));
@@ -353,6 +395,11 @@ function preview(text) {
   return text.length > PROMPT_PREVIEW_CHARS ? `${text.slice(0, PROMPT_PREVIEW_CHARS).trimEnd()}…` : text;
 }
 
+// A painting's canvas from its meta. Paintings from before canvas shapes are 512 square.
+function canvasOf(m) {
+  return m.canvas || { shape: "square", width: 512, height: 512 };
+}
+
 function summary(m) {
   const s = m.settings || {};
   return `${s.model || "?"}, eyes ${s.vision ? "on" : "off"}, ${m.shapes_used} shapes`;
@@ -404,6 +451,8 @@ function stageViewer(m, base) {
   const src = (st) => (st === final ? `${base}/painting.png` : `${base}/stages/stage-${st.n}.png`);
 
   const wrap = el("div", "stage-viewer");
+  const c = canvasOf(m);
+  wrap.style.setProperty("--ratio", c.width / c.height);
   const big = el("button", "stage-preview");
   big.type = "button";
   big.title = "Enlarge, with Painty's notes";
@@ -530,8 +579,10 @@ function showDetail(m) {
   right.append(el("h3", "", m.title), el("p", "painting-note", m.note || ""));
 
   const endings = { finished: "Painty finished it", ended: "Painty stopped without finishing", saved: "You saved it" };
+  const c = canvasOf(m);
   const rows = [
     ["Prompt", m.prompt],
+    ["Canvas", `${c.shape[0].toUpperCase()}${c.shape.slice(1)}, ${c.width} × ${c.height}`],
     ["Model", `${s.model} (effort: ${s.reasoning_effort || "default"})`],
     ["Vision", s.vision ? "On" : "Off"],
     ["Shapes", `${m.shapes_used} of ${m.shapes_budget}`],
@@ -605,6 +656,11 @@ function openLightbox(src, caption, extra = []) {
   $("lightbox-caption").replaceChildren(el("p", "lightbox-heading", caption), ...extra);
   $("lightbox").hidden = false;
 }
+// The figure is sized from the picture's own shape, so tall and wide pictures both fit.
+$("lightbox-img").addEventListener("load", (ev) => {
+  const img = ev.target;
+  if (img.naturalHeight) img.parentElement.style.setProperty("--ratio", img.naturalWidth / img.naturalHeight);
+});
 $("lightbox").addEventListener("click", () => { $("lightbox").hidden = true; });
 $("gallery").addEventListener("click", (ev) => { if (ev.target === $("gallery")) $("gallery").hidden = true; });
 
@@ -626,7 +682,7 @@ document.addEventListener("keydown", (ev) => {
     stepStage(ev.key === "ArrowLeft" ? -1 : 1);
     return;
   }
-  if (ev.key !== "Escape") return;
+  if (ev.key !== "Escape" || dialog.open) return; // the dialog closes itself on Escape
   // Escape steps back one level: lightbox, then painting, then the gallery itself.
   if (!$("lightbox").hidden) $("lightbox").hidden = true;
   else if (!$("gallery").hidden && !$("gallery-detail").hidden) backToGrid();
