@@ -779,6 +779,7 @@ function modelPill(model) {
 }
 
 // ---- favourites
+const TARGET_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5"/></svg>';
 const STAR_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.8l2.8 5.9 6.4.8-4.7 4.4 1.2 6.4L12 17.1l-5.7 3.2 1.2-6.4-4.7-4.4 6.4-.8z" stroke-linejoin="round"/></svg>';
 
 function starButton(m, cls = "") {
@@ -823,13 +824,27 @@ function showFavourite(m) {
 }
 
 // ---- filters
-// No model chosen means every model. Kept while the page is open.
+// No model chosen means every model; models are either-or, the other filters stack on top.
+// Kept while the page is open.
 let galleryItems = [];
-const galleryFilter = { models: new Set(), favourites: false };
+const galleryFilter = { models: new Set(), favourites: false, benchmarks: false };
 
-function shown(m) {
-  if (galleryFilter.favourites && !m.favourite) return false;
-  return !galleryFilter.models.size || galleryFilter.models.has(m.settings?.model);
+// Each filter on its own: does painting m pass it?
+const FACETS = {
+  models: (m) => !galleryFilter.models.size || galleryFilter.models.has(m.settings?.model),
+  favourites: (m) => !galleryFilter.favourites || Boolean(m.favourite),
+  benchmarks: (m) => !galleryFilter.benchmarks || Boolean(m.benchmark),
+};
+
+// Passes every filter, or every filter but one (skip), for the chips' counts.
+function shown(m, skip = null) {
+  return Object.entries(FACETS).every(([name, passes]) => name === skip || passes(m));
+}
+
+// A chip's count stacks on the other filters: how many paintings it would show with them.
+// A model chip ignores the model choice (models are either-or), so it counts its own.
+function countWhere(skip, test) {
+  return galleryItems.filter((m) => shown(m, skip) && test(m)).length;
 }
 
 function filterChip(label, pressed, onClick, colour) {
@@ -847,17 +862,20 @@ function filterChip(label, pressed, onClick, colour) {
 }
 
 function renderFilters() {
+  const inGallery = new Set(galleryItems.map((m) => m.settings?.model));
+  for (const name of [...galleryFilter.models]) if (!inGallery.has(name)) galleryFilter.models.delete(name);
   const counts = new Map();
-  for (const m of galleryItems) counts.set(m.settings?.model, (counts.get(m.settings?.model) || 0) + 1);
-  for (const name of [...galleryFilter.models]) if (!counts.has(name)) galleryFilter.models.delete(name);
+  for (const m of galleryItems) {
+    if (shown(m, "models")) counts.set(m.settings?.model, (counts.get(m.settings?.model) || 0) + 1);
+  }
 
-  const chips = [filterChip("All models", galleryFilter.models.size === 0, () => {
+  const chips = [filterChip(`All models (${countWhere("models", () => true)})`, galleryFilter.models.size === 0, () => {
     galleryFilter.models.clear();
     renderGallery();
   })];
   for (const [model, colour] of modelColours) {
-    if (!counts.has(model)) continue;
-    chips.push(filterChip(`${model} (${counts.get(model)})`, galleryFilter.models.has(model), () => {
+    if (!inGallery.has(model)) continue; // a model stays listed (at 0) while other filters hide it
+    chips.push(filterChip(`${model} (${counts.get(model) || 0})`, galleryFilter.models.has(model), () => {
       if (galleryFilter.models.has(model)) galleryFilter.models.delete(model);
       else galleryFilter.models.add(model);
       renderGallery();
@@ -865,16 +883,23 @@ function renderFilters() {
   }
   $("filter-models").replaceChildren(...chips);
 
-  const favs = galleryItems.filter((m) => m.favourite).length;
   const fav = $("filter-favourites");
   fav.innerHTML = STAR_SVG;
-  fav.append(` Favourites (${favs})`);
+  fav.append(` Favourites (${countWhere("favourites", (m) => m.favourite)})`);
   fav.setAttribute("aria-pressed", String(galleryFilter.favourites));
+  const bench = $("filter-benchmarks");
+  bench.innerHTML = TARGET_SVG;
+  bench.append(` Benchmarks (${countWhere("benchmarks", (m) => m.benchmark)})`);
+  bench.setAttribute("aria-pressed", String(galleryFilter.benchmarks));
   $("gallery-filters").hidden = galleryItems.length === 0 || $("gallery-grid").hidden;
 }
 
 $("filter-favourites").addEventListener("click", () => {
   galleryFilter.favourites = !galleryFilter.favourites;
+  renderGallery();
+});
+$("filter-benchmarks").addEventListener("click", () => {
+  galleryFilter.benchmarks = !galleryFilter.benchmarks;
   renderGallery();
 });
 

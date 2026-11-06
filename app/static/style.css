@@ -290,6 +290,7 @@ button, input, select, textarea { font: inherit; }
 .fav-chip { margin-left: 8px; }
 .fav-chip svg { width: 14px; height: 14px; fill: none; stroke: var(--cadmium-deep); stroke-width: 2.2; }
 .fav-chip[aria-pressed="true"] svg { fill: var(--cadmium); stroke: var(--cadmium); }
+.bench-chip svg { width: 14px; height: 14px; fill: none; stroke: var(--mat); stroke-width: 2.2; }
 .filter-count { margin-left: auto; color: var(--graphite-soft); font-size: 13px; }
 
 /* Each model's own colour, on its name. */
