@@ -19,7 +19,7 @@ It's an experiment in agent adaptation. The agent can't fall back on SVG or CSS 
 - **Paint again.** Re-run a painting from its finished card or from the gallery. The New painting dialog opens filled in with its prompt, reference image, canvas and settings, so you can change one thing and compare.
 - **Keep going.** When the budget runs out, the drawing pauses. Give it more and the agent carries on exactly where it stopped.
 - **Watch it work.** Shapes appear live, layer by layer. A feed shows every batch, the agent's notes, and a thumbnail of everything it looked at.
-- **Gallery.** Every finished painting is saved with its prompt, settings, shapes, looks and token use, ready to compare or share. Step through a snapshot of every stage (one per paint call): the stages the agent looked at are marked with an eye, and can switch to exactly what it saw, grid and all. Each model has its own colour, you can filter by model, and you can star your favourites and show only those.
+- **Gallery.** Every finished painting is saved with its prompt, settings, shapes, looks, token use and an estimated cost (from prices you set in `.env`), ready to compare or share. Step through a snapshot of every stage (one per paint call): the stages the agent looked at are marked with an eye, and can switch to exactly what it saw, grid and all. Each model has its own colour, you can filter by model, and you can star your favourites and show only those.
 - **Full tracing.** Every drawing appears in the OpenAI Traces dashboard.
 
 ## Tech stack
@@ -76,6 +76,7 @@ These are set on screen and saved between restarts. Changes apply to the next dr
 |---|---|---|
 | `OPENAI_API_KEY` | Yes | Calls the models and uploads traces |
 | `PAINTY_MODELS` | No | Models offered in the settings panel, comma separated. The first is the default. They must accept image input for vision and reference images |
+| `PAINTY_PRICE_<MODEL>` | No | A model's price, for the cost estimate in the gallery: US dollars per million tokens as `input/cached/output/cache write`, for example `PAINTY_PRICE_GPT_6_1_SOL=2.00/0.10/10.00/2.50`. Leave off the cache write price for models before GPT-5.6, which don't bill writes. `.env.example` has current prices for the default models. The name is the model in capitals with other characters as `_`. Costs use the current prices, so older paintings are priced too |
 | `TRACE_WORKFLOW_NAME` | No | Name shown for each drawing in OpenAI Traces |
 | `OPENAI_AGENTS_DISABLE_TRACING` | No | Set to `true` to stop sending traces to OpenAI |
 | `DATA_DIR` | No | Where the gallery and saved settings live. Defaults to `data` (`/srv/data` in the container, which is the `painty-data` volume) |

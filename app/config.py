@@ -9,6 +9,8 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .pricing import Prices, read_prices
+
 
 def _env(name: str, default: str = "") -> str:
     # `or default` so a blank value in .env (e.g. `PAINTY_MODELS=`) uses the default.
@@ -29,6 +31,9 @@ class Settings:
     trace_workflow_name: str = _env("TRACE_WORKFLOW_NAME", "Painty drawing")
     # Where the gallery and saved settings live. In the container: /srv/data.
     data_dir: Path = Path(_env("DATA_DIR", "data"))
+    # Each model's price, from PAINTY_PRICE_<MODEL>=input/cached/output (dollars per
+    # million tokens), for the gallery's cost estimates. See app/pricing.py.
+    prices: Prices = field(default_factory=lambda: read_prices(os.environ))
 
 
 settings = Settings()

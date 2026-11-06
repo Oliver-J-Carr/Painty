@@ -61,6 +61,9 @@ class ActivityHooks(RunHooks[PaintyContext]):
     async def on_llm_start(self, context, agent, system_prompt, input_items) -> None:
         await context.context.emit({"type": "phase", "phase": "thinking"})
 
+    async def on_llm_end(self, context, agent, response) -> None:
+        context.context.tokens.add(response.usage)
+
     async def on_tool_start(self, context, agent, tool) -> None:
         args = _args(context)
         detail = _kinds(args) if tool.name == "paint" else (

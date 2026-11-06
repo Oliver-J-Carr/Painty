@@ -182,6 +182,29 @@ function tokenText({ input = 0, cached, output = 0, reasoning }) {
   return `${input.toLocaleString()} in${share}, ${output.toLocaleString()} out${thinking}`;
 }
 
+// Dollars, with enough places to show small amounts: $1.24, $0.042, $0.0037.
+function usd(n) {
+  if (n >= 1) return `$${n.toFixed(2)}`;
+  if (n === 0) return "$0.00";
+  return n < 0.0001 ? "under $0.0001" : `$${n.toPrecision(2)}`;
+}
+
+// An estimated cost from the server ({usd, rates, var}), for a details row: the amount, with
+// the rates it used on hover, or which .env variable to set when the model has no price.
+function costInfo(c) {
+  if (!c) return "?";
+  if (c.usd === null || c.usd === undefined) {
+    return ["No price set. Add ", el("code", "", c.var), " to .env"];
+  }
+  const span = el("span", "", `≈ ${usd(c.usd)}`);
+  if (c.rates) {
+    const [pin, pcached, pout, pwrite] = c.rates;
+    const write = pwrite !== undefined && pwrite !== pin ? `, $${pwrite} cache write` : "";
+    span.title = `At $${pin} in, $${pcached} cached${write}, $${pout} out per million tokens`;
+  }
+  return span;
+}
+
 function applyState(e) {
   state = e.state;
   const painting = state === "painting";
@@ -208,7 +231,8 @@ function applyState(e) {
     $("finished-note").textContent = e.note || "";
     const t = e.tokens || {};
     const tokens = t.input || t.output ? `Tokens: ${tokenText(t)}. ` : "";
-    $("finished-meta").textContent = `${shapesOnCanvas} shapes. ${tokens}${savedId ? "Saved to the gallery." : "Not saved."}`;
+    const cost = typeof e.cost?.usd === "number" ? `Cost ≈ ${usd(e.cost.usd)}. ` : "";
+    $("finished-meta").textContent = `${shapesOnCanvas} shapes. ${tokens}${cost}${savedId ? "Saved to the gallery." : "Not saved."}`;
     $("view-saved").hidden = !savedId;
     if (lastRun) lastRun.title = e.title || "Untitled";
   }
@@ -983,6 +1007,7 @@ function showDetail(m) {
     ["Top-ups", String(m.top_ups)],
     ["Tokens", tokenText({ input: m.input_tokens, cached: m.cached_tokens,
                            output: m.output_tokens, reasoning: m.reasoning_tokens })],
+    ["Cost", costInfo(m.cost)],
     ["Time", m.duration_s ? `${Math.round(m.duration_s)} s` : "?"],
     ["Ending", endings[m.ending] || m.ending],
     ["Painted", new Date(m.created_at * 1000).toLocaleString("en-GB")],

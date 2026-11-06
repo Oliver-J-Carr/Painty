@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import itertools
 import time
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Any, Awaitable, Callable
 
 from .canvas import Canvas
@@ -50,6 +50,31 @@ class Budget:
 
 
 @dataclass
+class Tokens:
+    """Tokens used by every model call in the drawing, added up as each call ends.
+
+    Counted per call (in the on_llm_end hook) rather than from the run's result, so
+    a drawing that is stopped or fails mid-run still counts the calls it made."""
+    input: int = 0
+    cached: int = 0       # the part of input read from the prompt cache
+    cache_write: int = 0  # the part of input written to the prompt cache (billed from GPT-5.6 on)
+    output: int = 0
+    reasoning: int = 0    # the part of output spent on reasoning
+
+    def add(self, usage) -> None:
+        self.input += getattr(usage, "input_tokens", 0) or 0
+        self.output += getattr(usage, "output_tokens", 0) or 0
+        details = getattr(usage, "input_tokens_details", None)
+        self.cached += getattr(details, "cached_tokens", 0) or 0
+        self.cache_write += getattr(details, "cache_write_tokens", 0) or 0
+        details = getattr(usage, "output_tokens_details", None)
+        self.reasoning += getattr(details, "reasoning_tokens", 0) or 0
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+@dataclass
 class Stage:
     """One paint call that put shapes down: canvas shapes first to last."""
     first: int
@@ -77,6 +102,7 @@ class PaintyContext:
     budget: Budget = field(default_factory=lambda: Budget(0, 0))
     looks: list[Look] = field(default_factory=list)    # what the agent saw, in order
     stages: list[Stage] = field(default_factory=list)  # each paint call that painted, in order
+    tokens: Tokens = field(default_factory=Tokens)      # every model call so far, all segments
     finish_title: str | None = None    # set by the finish tool
     finish_note: str = ""
     started_at: float = field(default_factory=time.time)

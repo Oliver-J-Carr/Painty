@@ -34,6 +34,7 @@ from .context import Budget, PaintyContext, SendEvent
 from .gallery import Gallery, SaveRequest, settings_dict
 from .hooks import ActivityHooks
 from .painter import PAUSED, build_painter_agent
+from .pricing import cost
 from .settings_store import SettingsStore
 from .tools import budget_left
 from .exemplar import exemplar_text, exemplar_views
@@ -65,10 +66,6 @@ class Studio:
         self.history: list | None = None  # the conversation so far, for keep going
         self.drawing_id = ""
         self.saved_id: str | None = None
-        self.input_tokens = 0
-        self.cached_tokens = 0     # the part of input_tokens served from the prompt cache
-        self.output_tokens = 0
-        self.reasoning_tokens = 0  # the part of output_tokens spent on reasoning
         self.task: asyncio.Task | None = None
         self.hooks = ActivityHooks()
 
@@ -125,7 +122,6 @@ class Studio:
         self.agent = build_painter_agent(s, self.model, cache_key=self.drawing_id)
         self.history = None
         self.saved_id = None
-        self.input_tokens = self.cached_tokens = self.output_tokens = self.reasoning_tokens = 0
 
         await self._emit({"type": "canvas_reset", "prompt": prompt,
                           "reference": data_url(ref) if ref else None,
@@ -205,7 +201,6 @@ class Studio:
                                  "exemplar": str(ctx.settings.exemplar).lower()}):
                 result = await Runner.run(self.agent, run_input, context=ctx,
                                           hooks=self.hooks, max_turns=_turn_limit(ctx.budget))
-            self._count_tokens(result.context_wrapper.usage)
             self.history = result.to_input_list()
             if ctx.finished:
                 await self._save_and_finish("finished", ctx.finish_title, ctx.finish_note)
@@ -217,8 +212,6 @@ class Studio:
                 await self._save_and_finish("ended", "", str(result.final_output or "").strip()[:500])
         except MaxTurnsExceeded as exc:
             self.history = _history_from(exc)
-            if exc.run_data:
-                self._count_tokens(exc.run_data.context_wrapper.usage)
             await self.ctx.activity("error", "⏸️ Turn limit reached", str(exc))
             await self._pause("turns")
         except asyncio.CancelledError:
@@ -247,8 +240,9 @@ class Studio:
             settings=settings_dict(c.settings), shapes_budget=c.budget.shapes_total,
             looks_budget=c.budget.looks_total, looks=list(c.looks), stages=list(c.stages),
             top_ups=c.budget.top_ups,
-            input_tokens=self.input_tokens, cached_tokens=self.cached_tokens,
-            output_tokens=self.output_tokens, reasoning_tokens=self.reasoning_tokens,
+            input_tokens=c.tokens.input, cached_tokens=c.tokens.cached,
+            cache_write_tokens=c.tokens.cache_write,
+            output_tokens=c.tokens.output, reasoning_tokens=c.tokens.reasoning,
             started_at=c.started_at,
         )
         meta = None
@@ -264,17 +258,9 @@ class Studio:
         self.history = None
         await self._set_state("finished", title=title or "Untitled", note=note, ending=ending,
                               saved_id=self.saved_id, meta=meta,
-                              tokens={"input": self.input_tokens, "cached": self.cached_tokens,
-                                      "output": self.output_tokens,
-                                      "reasoning": self.reasoning_tokens})
-
-    def _count_tokens(self, usage) -> None:
-        self.input_tokens += getattr(usage, "input_tokens", 0) or 0
-        self.output_tokens += getattr(usage, "output_tokens", 0) or 0
-        details = getattr(usage, "input_tokens_details", None)
-        self.cached_tokens += getattr(details, "cached_tokens", 0) or 0
-        details = getattr(usage, "output_tokens_details", None)
-        self.reasoning_tokens += getattr(details, "reasoning_tokens", 0) or 0
+                              tokens=c.tokens.to_dict(),
+                              cost=cost(c.settings.model, c.tokens.input, c.tokens.cached,
+                                        c.tokens.output, env.prices, c.tokens.cache_write))
 
     @staticmethod
     async def _quietly(coro) -> None:

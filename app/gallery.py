@@ -53,6 +53,7 @@ class SaveRequest:
     top_ups: int = 0
     input_tokens: int = 0
     cached_tokens: int = 0      # part of input_tokens, served from the prompt cache
+    cache_write_tokens: int = 0  # part of input_tokens, written to the prompt cache
     output_tokens: int = 0
     reasoning_tokens: int = 0   # part of output_tokens
     started_at: float = 0.0
@@ -132,6 +133,8 @@ class Gallery:
             "shape_format": "notation",
             "input_tokens": req.input_tokens,
             "cached_tokens": req.cached_tokens,
+            # Older paintings have none: their cost counts writes as plain input.
+            "cache_write_tokens": req.cache_write_tokens,
             "output_tokens": req.output_tokens,
             "reasoning_tokens": req.reasoning_tokens,
             "version": version,

@@ -7,9 +7,11 @@ events the browser would receive.
 
 import asyncio
 import base64
+import dataclasses
 import io
 import json
 
+import pytest
 from agents import Usage, set_tracing_disabled
 from PIL import Image
 from agents.testing import ScriptedModel, assistant_message, function_call
@@ -17,6 +19,7 @@ from openai.types.responses.response_usage import InputTokensDetails, OutputToke
 
 from app.gallery import Gallery
 from app.settings_store import SettingsStore
+import app.studio as studio_module
 from app.studio import Studio
 
 set_tracing_disabled(True)
@@ -166,7 +169,7 @@ def test_stages_follow_what_was_actually_painted(tmp_path):
 
 def test_cached_and_reasoning_tokens_are_counted_and_saved(tmp_path):
     per_call = Usage(requests=1, input_tokens=1000, output_tokens=200, total_tokens=1200,
-                     input_tokens_details=InputTokensDetails(cached_tokens=600, cache_write_tokens=0),
+                     input_tokens_details=InputTokensDetails(cached_tokens=600, cache_write_tokens=100),
                      output_tokens_details=OutputTokensDetails(reasoning_tokens=150))
     steps = [
         [paint([rect(0, 0, 512, 512)], "c1")],
@@ -180,9 +183,10 @@ def test_cached_and_reasoning_tokens_are_counted_and_saved(tmp_path):
     run(go)
 
     final = types(events, "status")[-1]
-    assert final["tokens"] == {"input": 2000, "cached": 1200, "output": 400, "reasoning": 300}
+    assert final["tokens"] == {"input": 2000, "cached": 1200, "cache_write": 200,
+                               "output": 400, "reasoning": 300}
     meta = json.loads((tmp_path / "gallery" / final["saved_id"] / "meta.json").read_text())
-    assert (meta["input_tokens"], meta["cached_tokens"]) == (2000, 1200)
+    assert (meta["input_tokens"], meta["cached_tokens"], meta["cache_write_tokens"]) == (2000, 1200, 200)
     assert (meta["output_tokens"], meta["reasoning_tokens"]) == (400, 300)
 
 
@@ -582,6 +586,45 @@ def test_turn_limit_pauses_and_can_resume(tmp_path):
     run(go)
 
     assert studio.state == "finished" and len(studio.ctx.canvas) == 1
+
+
+def test_finished_carries_an_estimated_cost(tmp_path, monkeypatch):
+    monkeypatch.setattr(studio_module, "env", dataclasses.replace(
+        studio_module.env, prices={"PAINTY_PRICE_FAKE_MODEL": (2.0, 0.5, 10.0, 2.5)}))
+    per_call = Usage(requests=1, input_tokens=1000, output_tokens=200, total_tokens=1200,
+                     input_tokens_details=InputTokensDetails(cached_tokens=600, cache_write_tokens=100),
+                     output_tokens_details=OutputTokensDetails(reasoning_tokens=0))
+    steps = [[paint([rect(0, 0, 512, 512)], "c1")], [finish("c2")]]
+    studio, _, events = make_studio(tmp_path, steps, usage=per_call)
+
+    async def go():
+        await studio.start("a blue square")
+        await _wait(studio)
+    run(go)
+
+    c = types(events, "status")[-1]["cost"]
+    # two calls: 600 uncached at $2, 1200 cached at $0.50, 200 written at $2.50, 400 out at $10
+    assert c["usd"] == pytest.approx((600 * 2 + 1200 * 0.5 + 200 * 2.5 + 400 * 10) / 1e6)
+
+
+def test_stopped_drawing_keeps_the_tokens_it_used(tmp_path):
+    # Regression: tokens were read from the run's result, which a stopped run never has.
+    per_call = Usage(requests=1, input_tokens=1000, output_tokens=10, total_tokens=1010)
+    steps = [[paint([rect(0, 0, 100, 100)], "c1")]] + [[look(f"l{i}")] for i in range(50)]
+    studio, _, events = make_studio(tmp_path, steps, usage=per_call, look_budget=50, shape_budget=2)
+
+    async def go():
+        await studio.start("stop me")
+        while len(types(events, "look")) < 2:
+            await asyncio.sleep(0.01)
+        await studio.stop()
+        await _wait(studio)
+        await studio.save()
+    run(go)
+
+    meta = json.loads((tmp_path / "gallery" / studio.saved_id / "meta.json").read_text())
+    assert meta["input_tokens"] >= 3000 and meta["input_tokens"] % 1000 == 0  # paint and two looks
+    assert meta["output_tokens"] == meta["input_tokens"] // 100
 
 
 def test_stop_cancels_and_save_keeps_the_painting(tmp_path):

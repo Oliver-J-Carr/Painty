@@ -297,7 +297,16 @@ Each painting is a folder under `DATA_DIR/gallery` (in the container, the `paint
 - `reference.png` and `reference-view.png`: the reference image, if one was given, cropped to the canvas, and as the agent saw it (ruler and grid included)
 - `exemplar-N.png`: the exemplar sheets as the agent saw them, if it was shown them
 - `stages/stage-N.png`: the canvas after each paint call that painted something (canvas size, no grid). Rendered at save time from the first shapes of the canvas, so painting gets no slower. A look at a blank canvas adds a `stage-0.png`
-- `meta.json`: prompt, title, note, ending, `canvas` (shape, width and height; missing on older paintings, which are 512 × 512 square), `exemplar_sheets` (the exemplar files saved with it; empty when it wasn't shown, missing on older paintings), `reference` (true when a reference image was given; the prompt may then be empty, meaning recreate it), `favourite` (set from the gallery; missing means no), settings, budgets used, top-ups, `shape_format` (`notation`; missing on paintings from before it, which have no `shapes.txt`), tokens (input with the cached share, output with the reasoning share), time, version, `stages` (each with its first and last shape, note and the looks taken there) and `looks` (each look's focus and how many shapes it saw). Paintings from before stages have neither
+- `meta.json`: prompt, title, note, ending, `canvas` (shape, width and height; missing on older paintings, which are 512 × 512 square), `exemplar_sheets` (the exemplar files saved with it; empty when it wasn't shown, missing on older paintings), `reference` (true when a reference image was given; the prompt may then be empty, meaning recreate it), `favourite` (set from the gallery; missing means no), settings, budgets used, top-ups, `shape_format` (`notation`; missing on paintings from before it, which have no `shapes.txt`), tokens (input with the cached and cache write shares, output with the reasoning share; `cache_write_tokens` is missing on older paintings), time, version, `stages` (each with its first and last shape, note and the looks taken there) and `looks` (each look's focus and how many shapes it saw). Paintings from before stages have neither
+
+**Estimated cost.** Each painting's page shows a cost, worked out from its tokens and the model's price in `.env` (`PAINTY_PRICE_<MODEL>=input/cached/output`, US dollars per million tokens; `app/pricing.py`).
+
+- One variable per model, named from the model (`gpt-6.1-sol` → `PAINTY_PRICE_GPT_6_1_SOL`), so any model in the gallery can be priced, even one no longer offered.
+- Worked out live by `/api/gallery`, never saved in `meta.json`, so older paintings get a cost too. The trade-off: changing a price changes every painting's cost.
+- Exact from the totals: pricing is linear. Input tokens include images, cache reads and cache writes, and each input token is billed at one rate: plain input, cached or cache write. Output includes reasoning.
+- Cache writes: models from GPT-5.6 on (all the gpt-6 models) bill tokens written to the prompt cache at 1.25 times input (the default 30-minute cache), so the price takes an optional fourth number. Painty saves `cache_write_tokens` per painting; older paintings have none, so their writes count as plain input, a slight underestimate.
+- Not modelled: the long-context rates (double, for a request over 272K input tokens). A Painty request is normally far smaller.
+- Tokens are counted as each model call ends (the `on_llm_end` hook), not from the run's result. A stopped or failed run has no result, so before this a stopped-then-saved drawing lost every call in its last segment.
 
 Endings: `finished` (the agent called finish), `ended` (it stopped without calling finish, so its last words become the note) and `saved` (you saved it by hand).
 
@@ -333,6 +342,7 @@ Endings: `finished` (the agent called finish), `ended` (it stopped without calli
 - Each look adds an image to the conversation, and the whole conversation is resent on every model call, so token use grows with each look.
 - Small models may not follow the coordinate system well; that's part of what's being measured.
 - Some models reject `reasoning.effort`; use "Model default" (in the New painting dialog) if so.
+- The cost is an estimate: it uses today's prices in `.env`, not what was charged at the time, and a model call still running when you press Stop isn't counted.
 - Tracing uploads tool outputs and inputs, including look images and reference images, to OpenAI.
 - The gallery lives in the `painty-data` Docker volume (the devbox convention for persistent data). `docker compose down -v` would delete it.
 
@@ -368,3 +378,4 @@ Endings: `finished` (the agent called finish), `ended` (it stopped without calli
 | 6 Nov 2026 | The exemplar: two practice sheets built from code by the real renderer, labelled, sent once at the start of the first message; a toggle, default on |
 | 6 Nov 2026 | Grid modes (`frame`, `overlay`, `none`) for every image the agent sees, to test whether the ruler frame's size mismatch causes offsets |
 | 6 Nov 2026 | Paint again, from the finished card and the gallery: opens the New painting dialog filled in with the painting's prompt, reference, canvas and settings, to change before painting |
+| 6 Nov 2026 | Estimated cost per painting from per-model prices in `.env` (one `PAINTY_PRICE_<MODEL>` each), worked out live so older paintings are priced too; tokens counted per model call so stopped drawings keep theirs |

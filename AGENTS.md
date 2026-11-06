@@ -67,6 +67,7 @@ docker image prune
 - `app/view.py`: SVG to PNG (resvg), the agent's view in its grid mode (`frame`, `overlay` or `none`, drawn with Pillow), and reference images (checked, cropped to the canvas, shown in the same grid mode).
 - `app/exemplar.py`: the exemplar sheets. Examples written in the notation, painted by the real renderer, labelled in Pillow and cached per grid mode; `exemplar_text()` builds the matching text from the same lines.
 - `app/gallery.py`: saves finished paintings as plain files under `DATA_DIR/gallery`, including a snapshot of each stage (one per paint call that painted), rendered at save time.
+- `app/pricing.py`: the estimated cost of a painting from its tokens and the `PAINTY_PRICE_<MODEL>` prices. Worked out live for `/api/gallery` (each item's `cost`) and the finished status.
 - `app/settings_store.py`: the on-screen settings (in the New painting dialog and the settings drawer), clamped and saved to `DATA_DIR/settings.json`.
 - `app/context.py`: `PaintyContext` (canvas, budget, looks, event helpers), passed to tools and hooks, never sent to the model.
 - `app/hooks.py`: `RunHooks` that feed the activity panel.
@@ -130,7 +131,7 @@ docker image prune
   - `shapes`: `shapes` as `[{n, svg}]` in paint order, plus `key` (the tool call id).
   - `look`: `key`, `n`, `focus` and `image` (a PNG data URL of exactly what the agent saw).
   - `budget`: shapes and looks used, total and left, and `top_ups`.
-  - `status`: `state` of `painting`, `paused` (`reason`, `top_up`), `finished` (`title`, `note`, `ending`, `saved_id`, `meta`, `tokens`), `stopped` or `error` (`reason`).
+  - `status`: `state` of `painting`, `paused` (`reason`, `top_up`), `finished` (`title`, `note`, `ending`, `saved_id`, `meta`, `tokens`, `cost`), `stopped` or `error` (`reason`).
   - `phase`: `thinking`, `paint`, `look` or `finish`, shown in the top bar's status line while painting.
   - `activity`: feed entries. Tool entries share a `key` and go from `running` to `done` or `error`. An optional `image` (a data URL) shows as a thumbnail, such as the reference image as Painty sees it.
   - `settings`: the current settings after an update.

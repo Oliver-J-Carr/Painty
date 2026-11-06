@@ -19,6 +19,7 @@ from . import __version__
 from .config import settings
 from .exemplar import SHEETS, exemplar_text, exemplar_views
 from .gallery import Gallery
+from .pricing import cost
 from .settings_store import SettingsStore
 from .studio import Studio
 from .view import GRID_MODES
@@ -73,7 +74,14 @@ async def exemplar_txt() -> Response:
 
 @app.get("/api/gallery")
 async def gallery_list() -> list[dict]:
-    return app.state.gallery.list()
+    """Every painting's meta, newest first, each with its estimated cost at today's
+    prices (worked out here, never saved, so a price change reaches old paintings too)."""
+    items = app.state.gallery.list()
+    for m in items:
+        m["cost"] = cost((m.get("settings") or {}).get("model", ""), m.get("input_tokens", 0),
+                         m.get("cached_tokens", 0), m.get("output_tokens", 0), settings.prices,
+                         m.get("cache_write_tokens", 0))
+    return items
 
 
 class Favourite(BaseModel):
