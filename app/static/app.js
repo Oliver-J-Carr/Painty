@@ -252,7 +252,8 @@ function onCanvasReset(e) {
   shownReference = e.reference || null;
   if (e.reference) $("ref-shown-img").src = e.reference;
   $("prompt-shown").hidden = false;
-  lastRun = { prompt: e.prompt, reference: e.reference, shape: e.shape, settings: e.settings, title: null };
+  lastRun = { prompt: e.prompt, reference: e.reference, benchmark: e.benchmark, shape: e.shape,
+              settings: e.settings, title: null };
 }
 
 let shownReference = null; // the current drawing's reference image (a data URL), if any
@@ -291,6 +292,7 @@ function handle(e) {
       setupSettings(e.options, e.settings);
       configuredModels = e.options.models;
       canvases = e.canvases;
+      setupBenchmarks(e.benchmarks || [], e.benchmark_prompt || "");
       for (const [name, [w, h]] of Object.entries(canvases)) {
         const size = document.querySelector(`[data-size="${name}"]`);
         if (size) size.textContent = `${w} × ${h}`;
@@ -373,6 +375,8 @@ function cropReference() {
   $("ref-img").src = refUrl;
   const cropped = sw * sh < 0.99 * src.width * src.height;
   $("ref-text").textContent = `${cropped ? "Cropped to" : "Fits"} the ${shape} canvas, ${w} × ${h}.`;
+  const card = benchmarks.find((c) => c.name === benchmark);
+  if (card) $("ref-text").textContent = `Benchmark: ${card.title} (${card.shapes} shapes). ${card.about}`;
 }
 
 function refError(text) {
@@ -381,6 +385,7 @@ function refError(text) {
 }
 
 async function setReference(file) {
+  dropBenchmark(true);
   refError("");
   if (!file || !file.type.startsWith("image/")) { refError("That isn't an image."); return; }
   if (file.size > MAX_REFERENCE_FILE) { refError("That image is too big: 25 MB at most."); return; }
@@ -402,6 +407,7 @@ async function setReference(file) {
 }
 
 function clearReference() {
+  dropBenchmark(true);
   refSource?.close();
   refSource = null;
   refUrl = null;
@@ -418,8 +424,61 @@ $("ref-pick").addEventListener("click", () => $("ref-file").click());
 $("ref-file").addEventListener("change", () => setReference($("ref-file").files[0]));
 $("ref-remove").addEventListener("click", () => { clearReference(); $("ref-pick").focus(); });
 for (const radio of newForm.elements.canvas) {
-  radio.addEventListener("change", () => { if (refSource) cropReference(); });
+  // A benchmark card re-cropped to another shape is just an image, so it stops being the card.
+  radio.addEventListener("change", () => { dropBenchmark(false); if (refSource) cropReference(); });
 }
+
+// ---- benchmark cards
+// A card is a reference image painted by the server in Painty's own notation, to be
+// reproduced and then scored (python -m app.benchmark_score). Picking one loads it into
+// the reference slot (which sets the canvas shape) and fills in the standard prompt. The
+// server paints the card again itself, so Painty gets its exact pixels, not this JPEG.
+let benchmarks = [];       // the cards, from hello
+let benchmarkPrompt = "";  // the standard prompt, from hello
+let benchmark = null;      // the chosen card's name, while the reference is that card
+
+function setupBenchmarks(cards, prompt) {
+  benchmarks = cards;
+  benchmarkPrompt = prompt;
+  const pick = $("benchmark-pick");
+  pick.replaceChildren(pick.options[0]);
+  for (const c of cards) {
+    const option = el("option", "", `${c.title} (${c.shape}, ${c.shapes} shapes)`);
+    option.value = c.name;
+    pick.appendChild(option);
+  }
+  pick.hidden = !cards.length;
+}
+
+// Forget the chosen card. clearPrompt: also clear the prompt if it's still the standard one.
+function dropBenchmark(clearPrompt) {
+  if (benchmark && clearPrompt && $("prompt").value === benchmarkPrompt) $("prompt").value = "";
+  benchmark = null;
+}
+
+async function pickBenchmark(name) {
+  const card = benchmarks.find((c) => c.name === name);
+  if (!card) return;
+  let blob;
+  try {
+    blob = await (await fetch(`/benchmark/${encodeURIComponent(name)}.png`)).blob();
+  } catch {
+    refError("That benchmark card couldn't be loaded. Try again.");
+    return;
+  }
+  await setReference(blob);
+  if (!refSource) return;
+  benchmark = name;
+  cropReference(); // shows the card's name in place of the crop note
+  if (!$("prompt").value.trim()) $("prompt").value = benchmarkPrompt;
+  updatePaintButton();
+}
+
+$("benchmark-pick").addEventListener("change", async (ev) => {
+  const name = ev.target.value;
+  ev.target.value = "";
+  if (name) await pickBenchmark(name);
+});
 // Drop an image anywhere on the dialog, or paste one while it's open.
 newForm.addEventListener("dragover", (ev) => {
   if (![...ev.dataTransfer.types].includes("Files")) return;
@@ -464,7 +523,8 @@ newForm.addEventListener("submit", (ev) => {
   // The dialog's settings go first (a number typed just before Enter may not have sent its
   // change yet). The socket keeps order, so the drawing starts with exactly what's shown.
   send({ type: "settings", settings: readSettings() });
-  send({ type: "paint", prompt, canvas: newForm.elements.canvas.value, ...(refUrl ? { reference: refUrl } : {}) });
+  send({ type: "paint", prompt, canvas: newForm.elements.canvas.value,
+         ...(benchmark ? { benchmark } : refUrl ? { reference: refUrl } : {}) });
   $("prompt").value = "";
   clearReference();
   endRerun(); // its settings were just sent, so they stay
@@ -480,7 +540,7 @@ newForm.addEventListener("submit", (ev) => {
 let savedSettings = null; // the settings as saved on the server, from hello and settings
 let rerunning = false;    // the dialog holds an earlier painting's settings, not saved yet
 
-async function paintAgain({ prompt, reference, shape, settings, title }) {
+async function paintAgain({ prompt, reference, benchmark: card, shape, settings, title }) {
   if (state === "painting" || state === "connecting") {
     toast("Painty is busy. Wait for this painting to end, or stop it, then try again.");
     return;
@@ -495,7 +555,9 @@ async function paintAgain({ prompt, reference, shape, settings, title }) {
   }
 
   clearReference();
-  if (reference) {
+  if (card && benchmarks.some((c) => c.name === card)) {
+    await pickBenchmark(card);
+  } else if (reference) { // a card no longer offered is re-run as a plain reference image
     try {
       await setReference(await (await fetch(reference)).blob());
     } catch {
@@ -989,7 +1051,7 @@ function showDetail(m) {
   again.title = "Open New painting with this painting's prompt, image and settings";
   again.addEventListener("click", () => paintAgain({
     prompt: m.prompt, reference: m.reference ? `${base}/reference.png` : null,
-    shape: canvasOf(m).shape, settings: m.settings, title: m.title,
+    benchmark: m.benchmark, shape: canvasOf(m).shape, settings: m.settings, title: m.title,
   }));
   right.appendChild(again);
 
@@ -998,6 +1060,7 @@ function showDetail(m) {
   const rows = [
     ["Prompt", promptOf(m)],
     ["Canvas", `${c.shape[0].toUpperCase()}${c.shape.slice(1)}, ${c.width} × ${c.height}`],
+    ...(m.benchmark ? [["Benchmark", benchmarks.find((b) => b.name === m.benchmark)?.title || m.benchmark]] : []),
     ["Model", [modelPill(s.model), ` (effort: ${s.reasoning_effort || "default"})`]],
     ["Vision", s.vision ? "On" : "Off"],
     ["Grid", GRID_NAMES[s.grid || "frame"] || s.grid], // older paintings had the ruler frame
@@ -1024,6 +1087,7 @@ function showDetail(m) {
   const fileLinks = [["PNG", "painting.png"], ["SVG", "painting.svg"],
     ...(m.shape_format === "notation" ? [["Shapes", "shapes.txt"]] : []),
     ...(m.reference ? [["Reference", "reference-view.png"]] : []), // as Painty saw it, grid and all
+    ...(m.benchmark ? [["Benchmark card", "benchmark.json"]] : []),
     ...(m.exemplar_sheets || []).map((file, i) => [`Exemplar ${i + 1}`, file]),
     ["Shapes (JSON)", "shapes.json"], ["Details", "meta.json"]];
   for (const [label, file] of fileLinks) {

@@ -769,3 +769,73 @@ def test_unknown_grid_mode_keeps_the_current_one(tmp_path):
     studio.store.update({"grid": "hexagons", "exemplar": 0})
     assert studio.store.current.grid == "overlay" and studio.store.current.exemplar is False
     assert studio.hello()["options"]["grids"] == ["frame", "overlay", "none"]
+
+
+def test_a_benchmark_card_is_the_reference_and_is_saved_for_scoring(tmp_path):
+    from app.benchmark import BENCHMARK_PROMPT, CARDS, card_json, card_png
+    from app.view import agent_view, data_url
+
+    steps = [[paint([rect(0, 0, 10, 10)], "c1")], [finish("c2")]]
+    studio, model, events = make_studio(tmp_path, steps, exemplar=False, grid="none")
+
+    async def go():
+        # The card sets the canvas shape, and replaces any image the browser sent.
+        await studio.start(BENCHMARK_PROMPT, "portrait", _reference_url(), benchmark="intermediate")
+        await _wait(studio)
+    run(go)
+
+    assert studio.state == "finished"
+    reset = types(events, "canvas_reset")[0]
+    assert reset["benchmark"] == "intermediate" and (reset["width"], reset["height"]) == (768, 512)
+    # Painty gets the card's exact pixels, in the drawing's grid mode.
+    sent = _images_in(model.calls[0].input)
+    assert len(sent) == 1
+    assert sent[0]["image_url"] == data_url(agent_view(card_png("intermediate"), 768, 512, "none"))
+    assert any(e["text"] == "🎯 Benchmark: Rotation, skew and blends" for e in types(events, "activity"))
+
+    folder = tmp_path / "gallery" / studio.saved_id
+    meta = json.loads((folder / "meta.json").read_text())
+    assert meta["benchmark"] == "intermediate" and meta["reference"] is True
+    assert (folder / "reference.png").read_bytes() == card_png("intermediate")
+    assert json.loads((folder / "benchmark.json").read_text()) == card_json("intermediate")
+    hello = studio.hello()
+    assert [c["name"] for c in hello["benchmarks"]] == list(CARDS)
+    assert hello["benchmark_prompt"] == BENCHMARK_PROMPT
+
+
+def test_a_benchmark_card_alone_means_recreate_it(tmp_path):
+    studio, model, _ = make_studio(tmp_path, [[finish("c1")]], exemplar=False)
+
+    async def go():
+        await studio.start("", "", None, benchmark="basic")
+        await _wait(studio)
+    run(go)
+
+    texts = [p.get("text", "") for p in model.calls[0].input[0]["content"]]
+    assert "Recreate this reference image as a painting." in texts
+
+
+def test_unknown_benchmark_card_starts_nothing(tmp_path):
+    studio, model, events = make_studio(tmp_path, [[finish("c1")]])
+
+    async def go():
+        await studio.start("copy it", "square", None, benchmark="mona-lisa")
+        await _wait(studio)
+    run(go)
+
+    assert studio.state == "idle" and studio.ctx is None and not model.calls
+    assert "no benchmark card called mona-lisa" in types(events, "error")[0]["text"]
+
+
+def test_a_painting_without_a_card_has_no_benchmark(tmp_path):
+    steps = [[paint([rect(0, 0, 10, 10)], "c1")], [finish("c2")]]
+    studio, _, _ = make_studio(tmp_path, steps, exemplar=False)
+
+    async def go():
+        await studio.start("a dot")
+        await _wait(studio)
+    run(go)
+
+    folder = tmp_path / "gallery" / studio.saved_id
+    assert "benchmark" not in json.loads((folder / "meta.json").read_text())
+    assert not (folder / "benchmark.json").exists()

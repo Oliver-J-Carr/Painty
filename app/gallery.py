@@ -12,6 +12,7 @@ Each painting gets its own folder under DATA_DIR/gallery:
         reference.png     the reference image, if one was given (canvas size)
         reference-view.png  the reference as the agent saw it (grid included)
         exemplar-N.png    the exemplar sheets as the agent saw them, if shown
+        benchmark.json    the benchmark card, if the reference was one (for scoring)
         meta.json         prompt, title, note, canvas, settings, budgets used, tokens,
                           and favourite (set from the gallery; the only thing that changes later)
 
@@ -48,6 +49,7 @@ class SaveRequest:
     reference: bytes | None = None       # the reference image, clean PNG at canvas size
     reference_view: bytes | None = None  # the same in the drawing's grid mode, as the agent saw it
     exemplar: tuple[bytes, ...] = ()     # the exemplar sheets as the agent saw them, if shown
+    benchmark: dict | None = None        # the benchmark card (card_json), if the reference was one
     looks: list[Look] = field(default_factory=list)
     stages: list[Stage] = field(default_factory=list)
     top_ups: int = 0
@@ -91,6 +93,8 @@ class Gallery:
             (folder / "reference.png").write_bytes(req.reference)
         if req.reference_view:
             (folder / "reference-view.png").write_bytes(req.reference_view)
+        if req.benchmark:
+            (folder / "benchmark.json").write_text(json.dumps(req.benchmark, indent=1), encoding="utf-8")
         exemplar_files = [f"exemplar-{i}.png" for i in range(1, len(req.exemplar) + 1)]
         for name, png in zip(exemplar_files, req.exemplar):
             (folder / name).write_bytes(png)
@@ -115,6 +119,9 @@ class Gallery:
             # The exemplar sheets the agent was shown, as it saw them (they change
             # between versions). Empty when it wasn't shown; older paintings have none.
             "exemplar_sheets": exemplar_files,
+            # The benchmark card's name when the reference was one (its definition is in
+            # benchmark.json, for app/benchmark_score.py). Missing otherwise.
+            **({"benchmark": req.benchmark["name"]} if req.benchmark else {}),
             "created_at": now,
             "duration_s": round(now - req.started_at, 1) if req.started_at else None,
             "settings": req.settings,

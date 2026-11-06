@@ -195,6 +195,10 @@ button, input, select, textarea { font: inherit; }
 .ref-slot.dragging { border-color: var(--graphite); background: #fff; }
 .ref-empty { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; padding: 14px; color: var(--graphite-soft); font-size: 14px; }
 .ref-empty .ghost-dark { padding: 6px 12px; }
+.benchmark-pick {
+  padding: 5px 8px; border-radius: 4px; border: 1px solid #b9bcb2; background: #fff;
+  color: var(--graphite); font-size: 14px; max-width: 100%;
+}
 .ref-chosen { display: flex; align-items: center; gap: 14px; padding: 10px; }
 .ref-chosen img { display: block; flex: none; height: 120px; width: auto; max-width: 55%; object-fit: contain; border-radius: 2px; box-shadow: 0 0 0 1px var(--paper-edge); }
 .ref-about { display: grid; gap: 8px; justify-items: start; font-size: 14px; }

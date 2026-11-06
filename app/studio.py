@@ -37,6 +37,7 @@ from .painter import PAUSED, build_painter_agent
 from .pricing import cost
 from .settings_store import SettingsStore
 from .tools import budget_left
+from .benchmark import BENCHMARK_PROMPT, CARDS, card_json, card_list, card_png
 from .exemplar import exemplar_text, exemplar_views
 from .view import agent_view, data_url, reference_png
 
@@ -86,26 +87,35 @@ class Studio:
     def hello(self) -> dict:
         return {"type": "hello", "version": __version__,
                 "canvases": {k: list(v) for k, v in CANVAS_SHAPES.items()},
-                "settings": settings_dict(self.store.current), "options": self.store.options()}
+                "settings": settings_dict(self.store.current), "options": self.store.options(),
+                "benchmarks": card_list(), "benchmark_prompt": BENCHMARK_PROMPT}
 
     # ------------------------------------------------------------ commands
-    async def start(self, prompt: str, shape: str = DEFAULT_SHAPE, reference: str | None = None) -> None:
+    async def start(self, prompt: str, shape: str = DEFAULT_SHAPE, reference: str | None = None,
+                    benchmark: str | None = None) -> None:
         """Start a brand new drawing on a fresh canvas of the given shape
         (square, landscape or portrait; anything else means square).
 
         reference: an optional image (a data URL) to work from. With no prompt,
         Painty recreates it; with one, it uses it as the prompt says.
+        benchmark: a benchmark card's name. The card is the reference, painted here
+        (exact pixels, not the browser's copy), and it sets the canvas shape.
         """
         prompt = (prompt or "").strip()[:MAX_PROMPT]
-        if not prompt and not reference:
+        if not prompt and not reference and not benchmark:
             return
         if self.state == "painting":
             await self._error("Still painting. Stop it first.")
             return
+        if benchmark and benchmark not in CARDS:
+            await self._error(f"There's no benchmark card called {benchmark}.")
+            return
 
-        canvas = Canvas(shape)  # unknown shapes fall back to square
+        canvas = Canvas(CARDS[benchmark].shape if benchmark else shape)  # unknown shapes: square
         ref = view = None
-        if reference:
+        if benchmark:
+            ref = await asyncio.to_thread(card_png, benchmark)
+        elif reference:
             try:
                 ref = await asyncio.to_thread(reference_png, reference, canvas.width, canvas.height)
             except ValueError as exc:
@@ -117,6 +127,7 @@ class Studio:
         exemplar = await asyncio.to_thread(exemplar_views, s.grid) if s.exemplar else ()
         self.ctx = PaintyContext(send=self.send, settings=s, prompt=prompt, canvas=canvas,
                                  reference=ref, reference_view=view, exemplar=exemplar,
+                                 benchmark=benchmark,
                                  budget=Budget(s.shape_budget, s.look_budget if s.vision else 0))
         self.drawing_id = f"painty_{uuid.uuid4().hex[:12]}"
         self.agent = build_painter_agent(s, self.model, cache_key=self.drawing_id)
@@ -124,7 +135,7 @@ class Studio:
         self.saved_id = None
 
         await self._emit({"type": "canvas_reset", "prompt": prompt,
-                          "reference": data_url(ref) if ref else None,
+                          "reference": data_url(ref) if ref else None, "benchmark": benchmark,
                           "settings": settings_dict(s), **canvas.info()})
         await self.ctx.send_budget()
         what = prompt or "recreate the reference image"
@@ -136,6 +147,11 @@ class Studio:
             await self.ctx.activity("agent", "📐 The exemplar sheets Painty was shown",
                                     f"{len(exemplar)} sheets of numbered examples, before your prompt",
                                     image=data_url(exemplar[0]))
+        if benchmark:
+            card = CARDS[benchmark]
+            await self.ctx.activity("agent", f"🎯 Benchmark: {card.title}",
+                                    f"{card.about} {card.shape_count} shapes; score it with "
+                                    "python -m app.benchmark_score once it's saved.")
         if view:
             await self.ctx.activity("agent", "🖼️ The reference image Painty was given",
                                     f"Cropped and scaled to the canvas ({canvas.width} × {canvas.height}), "
@@ -237,6 +253,7 @@ class Studio:
         req = SaveRequest(
             canvas=c.canvas, prompt=c.prompt, reference=c.reference,
             reference_view=c.reference_view, exemplar=c.exemplar, title=title, note=note, ending=ending,
+            benchmark=card_json(c.benchmark) if c.benchmark else None,
             settings=settings_dict(c.settings), shapes_budget=c.budget.shapes_total,
             looks_budget=c.budget.looks_total, looks=list(c.looks), stages=list(c.stages),
             top_ups=c.budget.top_ups,

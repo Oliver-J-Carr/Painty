@@ -12,6 +12,7 @@ It's an experiment in agent adaptation. The agent can't fall back on SVG or CSS 
 - **An exemplar to learn from.** Before it paints, Painty can be shown two practice sheets of numbered examples, painted by the same renderer and labelled with their boxes and coordinates, each listed with the exact shape text that drew it.
 - **Three canvas shapes.** Square (512 × 512), landscape (768 × 512) or portrait (512 × 768), chosen for each painting.
 - **Reference images.** Add a picture to a new painting. On its own, Painty tries to recreate it; with text, it uses it the way you say ("my dog as a cartoon", "a seascape in these colours"). The image picks the canvas shape for you.
+- **A benchmark.** Pick a benchmark card in the New painting dialog and Painty tries to reproduce it exactly. The cards are graded: basic shapes, rotation and skew, 3D solids, shading and effects, and letters made from lines, plus one combined card. Then score the result item by item, to compare models and settings.
 - **Paint is permanent.** Every shape covers what's beneath it. There's no undo or eraser, so mistakes are fixed by painting over them.
 - **The agent can see its own work.** Each look sends a PNG snapshot to the *same* model doing the painting, with a ruler and grid in its view to help it map what it sees to coordinates. You choose the grid: a ruler frame round the picture, a grid drawn on the picture (so it stays exactly canvas-sized), or none.
 - **Vision on or off.** Run the same prompt with and without sight and compare the results.
@@ -69,6 +70,41 @@ These are set on screen and saved between restarts. Changes apply to the next dr
 | Looks | 5 | Looks per drawing |
 | Most shapes in one paint call | 15 | Stops the agent painting everything in one blind batch |
 | Keep going adds (Settings) | 20 shapes, 2 looks | What "Keep going" gives a paused drawing |
+
+## Benchmark
+
+Each benchmark card is a picture painted by Painty's own renderer from shapes in its own notation, so a perfect copy is possible with the tools Painty has. None of it repeats the exemplar.
+
+| Card | What it tests |
+|---|---|
+| Basic shapes | Rectangles and circles of different sizes, a thin bar, an outline and a line |
+| Rotation, skew and blends | Shapes turned to odd angles, two skews and a diagonal blend |
+| Solids | An isometric cube, a cylinder and a cone |
+| Effects | A shaded sphere, see-through circles, a glow, spray, a tapered stroke and a bent arc |
+| Letters | HAZE in straight lines, and SOUP, which needs curves |
+| Combined | A little of each, on one card |
+
+To run one, open **New painting** and choose a card under **Reference image**. It sets the canvas shape and fills in a standard prompt (you can edit it). See a card at `/benchmark/<name>.png` and its shapes at `/benchmark/<name>.txt` (`basic`, `intermediate`, `solids`, `effects`, `letters`, `combined`).
+
+Once the painting is saved, score it:
+
+```bash
+docker exec painty python -m app.benchmark_score                   # every benchmark painting, one line each
+docker exec painty python -m app.benchmark_score <gallery id>      # item by item
+docker exec painty python -m app.benchmark_score <gallery id> --diff /srv/data/diff.png --json
+```
+
+Without Docker, run the same commands from the repo root with the venv active.
+
+Each item gets these numbers:
+
+- **score**: the share of painted pixels where the copy matches the card, place and colour. 1 is perfect.
+- **shape**: the same, ignoring colour.
+- **colour**: how close the colours are where both have paint.
+- **offset**: the shift that best lines the copy up with the card. Positive x means the copy sits to the right.
+- **shifted**: the shape score at that offset. A high shifted score with a low shape score means the right shape in the wrong place.
+
+The whole painting also gets a global offset, which shows whether the grid mode makes a copy drift.
 
 ## Environment variables
 

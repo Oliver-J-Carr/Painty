@@ -53,6 +53,9 @@ docker logs --tail 50 painty
 # Run without Docker (from the repo root, venv active)
 uvicorn app.main:app --reload --port 8091
 
+# Score benchmark paintings (all of them, or one by gallery id)
+docker exec painty python -m app.benchmark_score [<id> --diff /srv/data/diff.png]
+
 # Housekeeping: each rebuild leaves an old untagged image behind
 docker image prune
 ```
@@ -66,6 +69,8 @@ docker image prune
 - `app/canvas.py`: the shape models (internal only), the shape notation parser, validation and SVG rendering. No AI here.
 - `app/view.py`: SVG to PNG (resvg), the agent's view in its grid mode (`frame`, `overlay` or `none`, drawn with Pillow), and reference images (checked, cropped to the canvas, shown in the same grid mode).
 - `app/exemplar.py`: the exemplar sheets. Examples written in the notation, painted by the real renderer, labelled in Pillow and cached per grid mode; `exemplar_text()` builds the matching text from the same lines.
+- `app/benchmark.py`: the benchmark cards. Pictures written in the notation (items in cells, at graded levels), painted by the real renderer, served at `/benchmark/<name>.png` and `.txt`. A chosen card becomes the drawing's reference, painted by the server, and is saved as `benchmark.json`.
+- `app/benchmark_score.py`: scores a saved benchmark painting against its card, item by item (`python -m app.benchmark_score`). Pillow only.
 - `app/gallery.py`: saves finished paintings as plain files under `DATA_DIR/gallery`, including a snapshot of each stage (one per paint call that painted), rendered at save time.
 - `app/pricing.py`: the estimated cost of a painting from its tokens and the `PAINTY_PRICE_<MODEL>` prices. Worked out live for `/api/gallery` (each item's `cost`) and the finished status.
 - `app/settings_store.py`: the on-screen settings (in the New painting dialog and the settings drawer), clamped and saved to `DATA_DIR/settings.json`.
@@ -88,6 +93,7 @@ docker image prune
 - **A reference image goes in the first user message, once.** In the same grid mode as `look`, cropped to the canvas size. Never through a tool (each call would add the image again). No text with it means recreate it.
 - **The exemplar goes first in the first user message, once.** Its text and sheets, then the prompt, then any reference. Built from code (`app/exemplar.py`), never a saved PNG, so it can't drift from the renderer. Every example must pass `check_batch` on the sheet (tested). A toggle, for comparison.
 - **The same model sees its own work.** `look` returns the PNG to the painter itself via `ToolOutputImage`. Don't route images through a separate describing model (the book's Ch 7 critic pattern): that's what this project avoids.
+- **Benchmark cards are written in the notation.** Painted by the real renderer, never a saved image, so a perfect copy is always possible and the score measures the model, not the paint system. No card line may repeat an exemplar line (tested). The server paints the chosen card itself, so the reference is exact, and saves the card's definition with the painting, so scoring uses the card as it was.
 - **The grid is only in the agent's view.** `view.agent_view` applies the drawing's grid mode: `frame` (a numbered ruler frame and faint grid lines every 64 px; the image is 60 px bigger than the canvas), `overlay` (the same grid and small numbers drawn on the picture, exactly canvas-sized) or `none`. It applies to looks, the reference and the exemplar alike. The painting, the browser canvas and the gallery PNG never have a grid. Prompts describe the view through `GRID_NOTES`, never hard-coded ruler wording.
 - **Vision is a toggle, for comparison.** With vision off, the `look` tool is not registered at all and the prompt says it is painting blind.
 - **Budgets live in tools, not prompts alone.** Shape and look budgets are enforced in code. The per-call cap stops the agent dumping everything down in one blind batch.
@@ -120,14 +126,14 @@ docker image prune
 ## WebSocket protocol
 
 - Browser to server:
-  - `{"type": "paint", "prompt": "...", "canvas": "square", "reference": "data:image/jpeg;base64,..."}`: start a new drawing (max 500 characters). `canvas` is `square`, `landscape` or `portrait`; anything else means square. `reference` is optional; with it, `prompt` may be empty (recreate the image).
+  - `{"type": "paint", "prompt": "...", "canvas": "square", "reference": "data:image/jpeg;base64,..."}`: start a new drawing (max 500 characters). `canvas` is `square`, `landscape` or `portrait`; anything else means square. `reference` is optional; with it, `prompt` may be empty (recreate the image). `benchmark` (a card name) instead makes that card the reference and sets the canvas shape; an unknown card is refused.
   - `{"type": "keep_going"}`: top up a paused drawing and carry on.
   - `{"type": "stop"}`: cancel the running drawing.
   - `{"type": "save"}`: save a paused, stopped or failed drawing to the gallery.
   - `{"type": "settings", "settings": {...}}`: update settings (refused while painting).
 - Server to browser:
-  - `hello`: `version`, `canvases` (`{shape: [width, height]}`), `settings`, `options` (models, efforts, grids, limits).
-  - `canvas_reset`: a new drawing started (`prompt`, `reference` (a PNG data URL or null), `settings`, `shape`, `width`, `height`). Clear and resize the canvas, and clear the feed.
+  - `hello`: `version`, `canvases` (`{shape: [width, height]}`), `settings`, `options` (models, efforts, grids, limits), `benchmarks` (`[{name, title, about, shape, shapes}]`) and `benchmark_prompt`.
+  - `canvas_reset`: a new drawing started (`prompt`, `reference` (a PNG data URL or null), `benchmark` (a card name or null), `settings`, `shape`, `width`, `height`). Clear and resize the canvas, and clear the feed.
   - `shapes`: `shapes` as `[{n, svg}]` in paint order, plus `key` (the tool call id).
   - `look`: `key`, `n`, `focus` and `image` (a PNG data URL of exactly what the agent saw).
   - `budget`: shapes and looks used, total and left, and `top_ups`.

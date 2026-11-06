@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 from . import __version__
 from .config import settings
+from .benchmark import CARDS, card_png, card_text
 from .exemplar import SHEETS, exemplar_text, exemplar_views
 from .gallery import Gallery
 from .pricing import cost
@@ -72,6 +73,22 @@ async def exemplar_txt() -> Response:
     return Response(exemplar_text(), media_type="text/plain; charset=utf-8")
 
 
+@app.get("/benchmark/{name}.png")
+async def benchmark_png(name: str) -> Response:
+    """A benchmark card, clean, exactly as Painty is given it to reproduce."""
+    if name not in CARDS:
+        raise HTTPException(404, f"There's no benchmark card called {name}. Try {', '.join(CARDS)}.")
+    return Response(card_png(name), media_type="image/png")
+
+
+@app.get("/benchmark/{name}.txt")
+async def benchmark_txt(name: str) -> Response:
+    """A benchmark card's shapes in the notation, item by item."""
+    if name not in CARDS:
+        raise HTTPException(404, f"There's no benchmark card called {name}. Try {', '.join(CARDS)}.")
+    return Response(card_text(name), media_type="text/plain; charset=utf-8")
+
+
 @app.get("/api/gallery")
 async def gallery_list() -> list[dict]:
     """Every painting's meta, newest first, each with its estimated cost at today's
@@ -116,9 +133,10 @@ async def ws_endpoint(ws: WebSocket) -> None:
             msg = await ws.receive_json()
             kind = msg.get("type") if isinstance(msg, dict) else None
             if kind == "paint":
-                reference = msg.get("reference")
+                reference, benchmark = msg.get("reference"), msg.get("benchmark")
                 await studio.start(str(msg.get("prompt", "")), str(msg.get("canvas") or ""),
-                                   reference if isinstance(reference, str) else None)
+                                   reference if isinstance(reference, str) else None,
+                                   benchmark if isinstance(benchmark, str) and benchmark else None)
             elif kind == "keep_going":
                 await studio.keep_going()
             elif kind == "stop":
