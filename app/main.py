@@ -138,7 +138,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
                                    reference if isinstance(reference, str) else None,
                                    benchmark if isinstance(benchmark, str) and benchmark else None)
             elif kind == "keep_going":
-                await studio.keep_going()
+                await studio.keep_going(msg.get("shapes", 0), msg.get("looks", 0))
             elif kind == "stop":
                 await studio.stop()
             elif kind == "save":

@@ -6,7 +6,7 @@ the same settings) and survive restarts via DATA_DIR/settings.json.
 
 A drawing takes a copy of the settings when it starts, so changing them
 mid-drawing never changes the model, vision or budgets under the agent.
-Only the "keep going" top-up amounts are read live, when you click it.
+Keep going top-ups aren't settings: you type them on the paused card each time.
 """
 
 from __future__ import annotations
@@ -27,8 +27,6 @@ LIMITS: dict[str, tuple[int, int]] = {
     "shape_budget": (1, 500),
     "look_budget": (0, 50),
     "max_shapes_per_call": (1, 100),
-    "top_up_shapes": (1, 500),
-    "top_up_looks": (0, 50),
 }
 
 
@@ -42,8 +40,6 @@ class StudioSettings:
     reasoning_effort: str = "medium"
     grid: str = DEFAULT_GRID        # how the agent's view marks positions: frame, overlay or none
     exemplar: bool = True           # show the agent the exemplar sheet in its first message
-    top_up_shapes: int = 20         # added by "Keep going"
-    top_up_looks: int = 2
 
 
 def clean(raw: dict, models: tuple[str, ...], base: StudioSettings | None = None) -> StudioSettings:

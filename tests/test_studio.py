@@ -280,16 +280,16 @@ def test_budget_pause_then_keep_going_resumes_same_conversation(tmp_path):
         [paint([rect(200, 200, 300, 300)], "c2")],                     # after keep going
         [finish("c3", "Done")],
     ]
-    studio, model, events = make_studio(tmp_path, steps, shape_budget=2, top_up_shapes=5,
-                                        top_up_looks=1)
+    studio, model, events = make_studio(tmp_path, steps, shape_budget=2)
 
     async def go():
         await studio.start("squares")
         await _wait(studio)
         assert studio.state == "paused"
         paused = types(events, "status")[-1]
-        assert paused["state"] == "paused" and paused["top_up"] == {"shapes": 5, "looks": 1}
-        await studio.keep_going()
+        # Suggests shapes (they ran out) and no looks (some are left); you type the amounts.
+        assert paused["state"] == "paused" and paused["top_up"] == {"shapes": 20, "looks": 0}
+        await studio.keep_going(5, 0)
         await _wait(studio)
     run(go)
 
@@ -308,6 +308,86 @@ def test_budget_pause_then_keep_going_resumes_same_conversation(tmp_path):
     assert keys == {studio.drawing_id}
     meta = json.loads((tmp_path / "gallery" / studio.saved_id / "meta.json").read_text())
     assert meta["top_ups"] == 1 and meta["shapes_budget"] == 7
+
+
+def test_keep_going_needs_a_shape_when_none_are_left(tmp_path):
+    steps = [[paint([rect(0, 0, 100, 100)], "c1")], [finish("c2")]]
+    studio, _, events = make_studio(tmp_path, steps, shape_budget=1)
+
+    async def go():
+        await studio.start("a square")
+        await _wait(studio)
+        await studio.keep_going(0, 3)
+        assert studio.state == "paused" and studio.ctx.budget.top_ups == 0
+        assert "add at least one" in types(events, "error")[-1]["text"]
+        await studio.keep_going("lots", 3)  # not a number: counts as 0
+        assert studio.state == "paused"
+        await studio.keep_going(9999, 9999)  # clamped to the most you may add
+        await _wait(studio)
+    run(go)
+
+    assert studio.ctx.budget.shapes_total == 1 + 500 and studio.ctx.budget.looks_total == 5 + 50
+    assert studio.state == "finished"
+
+
+def test_a_refused_look_pauses_to_ask_for_more_looks(tmp_path):
+    steps = [
+        [paint([rect(0, 0, 100, 100)], "c1")],
+        [look("c2")],                          # no looks left: refused, and the run pauses
+        [look("c3")],                          # after keep going with 2 more looks
+        [finish("c4")],
+    ]
+    studio, model, events = make_studio(tmp_path, steps, shape_budget=10, look_budget=0)
+
+    async def go():
+        await studio.start("a square")
+        await _wait(studio)
+        assert studio.state == "paused"
+        paused = types(events, "status")[-1]
+        assert paused["reason"] == "Painty wanted to look, but it has no looks left."
+        assert paused["top_up"] == {"shapes": 0, "looks": 2}  # shapes are left, so none suggested
+        await studio.keep_going(0, 2)
+        await _wait(studio)
+    run(go)
+
+    assert studio.state == "finished"
+    b = studio.ctx.budget
+    assert (b.shapes_total, b.looks_total, b.looks_used, b.top_ups) == (10, 2, 1, 1)
+    refused, message = model.calls[2].input[-2:]
+    assert refused["call_id"] == "c2" and "pauses here" in str(refused["output"])
+    assert message["content"].startswith("You have been given 2 more looks. Shapes left: 9 of 10. Looks left: 2 of 2.")
+
+
+def test_keep_going_without_more_looks_carries_on_blind(tmp_path):
+    steps = [[look("c1")], [paint([rect(0, 0, 100, 100)], "c2")], [finish("c3")]]
+    studio, model, events = make_studio(tmp_path, steps, shape_budget=10, look_budget=0)
+
+    async def go():
+        await studio.start("a square")
+        await _wait(studio)
+        assert studio.state == "paused"
+        await studio.keep_going(0, 0)
+        await _wait(studio)
+    run(go)
+
+    assert studio.state == "finished" and studio.ctx.budget.top_ups == 0
+    message = str(model.calls[1].input[-1])
+    assert "No more shapes or looks were added" in message and "no looks left" in message
+
+
+def test_painting_blind_ignores_added_looks(tmp_path):
+    steps = [[paint([rect(0, 0, 100, 100)], "c1")], [finish("c2")]]
+    studio, _, events = make_studio(tmp_path, steps, shape_budget=1, vision=False)
+
+    async def go():
+        await studio.start("a square")
+        await _wait(studio)
+        assert types(events, "status")[-1]["top_up"] == {"shapes": 20, "looks": None}
+        await studio.keep_going(3, 4)
+        await _wait(studio)
+    run(go)
+
+    assert studio.ctx.budget.shapes_total == 4 and studio.ctx.budget.looks_total == 0
 
 
 def test_instructions_stay_the_same_within_a_run(tmp_path):
@@ -581,7 +661,7 @@ def test_turn_limit_pauses_and_can_resume(tmp_path):
         assert studio.state == "paused"
         assert types(events, "status")[-1]["reason"] == "The hidden turn limit was reached."
         assert studio.history is not None
-        await studio.keep_going()
+        await studio.keep_going(5, 0)
         await _wait(studio)
     run(go)
 
@@ -929,3 +1009,18 @@ def test_a_blind_benchmark_has_no_looks(tmp_path):
     run(go)
 
     assert studio.ctx.budget.looks_total == 0
+
+
+def test_a_benchmark_carries_on_after_a_refused_look(tmp_path):
+    # A benchmark can't keep going, so running out of looks mustn't pause it.
+    steps = [[look(f"c{i}")] for i in range(1, 5)] + [[finish("c5")]]  # the card allows 3 looks
+    studio, model, events = make_studio(tmp_path, steps, exemplar=False)
+
+    async def go():
+        await studio.start("copy it", "", None, benchmark="basic")
+        await _wait(studio)
+    run(go)
+
+    assert studio.state == "finished" and studio.ctx.budget.looks_used == 3
+    refused = model.calls[4].input[-1]
+    assert refused["call_id"] == "c4" and "Carry on" in str(refused["output"])

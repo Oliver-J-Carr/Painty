@@ -127,8 +127,12 @@ async def look(ctx: Ctx, focus: str) -> list[ToolOutputText | ToolOutputImage]:
     c = ctx.context
     b = c.budget
     if b.looks_left <= 0:
-        return [ToolOutputText(text="Error: no looks left. Carry on from what you already know, "
-                                    "or call finish if the painting is done.")]
+        if c.benchmark:  # a fixed budget: no top-ups, so carry on
+            return [ToolOutputText(text="Error: no looks left. Carry on from what you already know, "
+                                        "or call finish if the painting is done.")]
+        c.wants_look = True  # the run pauses after this, to ask the person for more looks
+        return [ToolOutputText(text="Error: no looks left. The drawing pauses here while the person "
+                                    "decides whether to give you more.")]
 
     grid = c.settings.grid
     png = agent_view_png(c.canvas.to_svg(), c.canvas.width, c.canvas.height, grid)

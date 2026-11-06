@@ -236,13 +236,7 @@ function applyState(e) {
   show("finished", state === "finished");
   show("halted", state === "stopped" || state === "error");
 
-  if (state === "paused") {
-    const t = e.top_up;
-    $("keep-going").hidden = !t; // a benchmark has a fixed budget: finish here only
-    const looks = t?.looks ? ` and ${t.looks} more looks` : "";
-    $("paused-text").textContent = t ? `${e.reason} Give Painty ${t.shapes} more shapes${looks}?`
-      : `${e.reason} A benchmark's budget is fixed, so finish here to save it for scoring.`;
-  }
+  if (state === "paused") showTopUp(e);
   if (state === "finished") {
     const score = $("finished-score");
     score.hidden = !e.benchmark_score;
@@ -282,6 +276,32 @@ $("ref-shown").addEventListener("click", () => {
   if (shownReference) openLightbox(shownReference, "The reference image");
 });
 
+// The paused card asks how many shapes and looks to add, filled in with a suggestion for
+// whatever ran out (0 for the rest). A benchmark's budget is fixed: it can only finish here.
+function showTopUp(e) {
+  const t = e.top_up;
+  $("keep-going").hidden = !t;
+  $("top-up-fields").hidden = !t;
+  $("paused-text").textContent = t ? `${e.reason} How much more should Painty have?`
+    : `${e.reason} A benchmark's budget is fixed, so finish here to save it for scoring.`;
+  if (!t) return;
+  $("top-up-shapes").value = t.shapes;
+  $("top-up-looks-field").hidden = t.looks === null; // painting blind: no looks to add
+  $("top-up-looks").value = t.looks ?? 0;
+  if ($("gallery").hidden && !dialog.open) { // ready to type over, unless something's on top
+    const first = t.shapes || t.looks === null ? $("top-up-shapes") : $("top-up-looks");
+    first.focus({ preventScroll: true });
+    first.select();
+  }
+}
+
+function setTopUpLimits(limits) {
+  for (const [kind, [lo, hi]] of Object.entries(limits || {})) {
+    const input = $(`top-up-${kind}`);
+    if (input) { input.min = lo; input.max = hi; }
+  }
+}
+
 // ------------------------------------------------------------------ socket
 function send(msg) {
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
@@ -311,6 +331,7 @@ function handle(e) {
       $("prompt-shown").hidden = true;
       savedSettings = e.settings;
       setupSettings(e.options, e.settings);
+      setTopUpLimits(e.options.top_up_limits);
       configuredModels = e.options.models;
       canvases = e.canvases;
       setupBenchmarks(e.benchmarks || [], e.benchmark_prompt || "");
@@ -578,7 +599,7 @@ async function paintAgain({ prompt, reference, benchmark: card, shape, settings,
   const wanted = { grid: "frame", exemplar: false, ...(settings || {}) };
   const gone = wanted.model && !configuredModels.includes(wanted.model) ? wanted.model : null;
   const values = {};
-  for (const input of dialog.querySelectorAll("[data-setting]")) { // not the drawer's top-ups
+  for (const input of dialog.querySelectorAll("[data-setting]")) {
     const name = input.dataset.setting;
     if (name in wanted && !(name === "model" && gone)) values[name] = wanted[name];
   }
@@ -622,17 +643,20 @@ dialog.addEventListener("close", () => {
 
 // ------------------------------------------------------------------ buttons
 $("stop").addEventListener("click", () => send({ type: "stop" }));
-$("keep-going").addEventListener("click", () => send({ type: "keep_going" }));
+$("paused").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const looks = $("top-up-looks-field").hidden ? 0 : Number($("top-up-looks").value) || 0;
+  send({ type: "keep_going", shapes: Number($("top-up-shapes").value) || 0, looks });
+});
 $("finish-here").addEventListener("click", () => send({ type: "save" }));
 $("save-halted").addEventListener("click", () => send({ type: "save" }));
 $("view-saved").addEventListener("click", () => openGallery(savedId));
 $("paint-again").addEventListener("click", () => { if (lastRun) paintAgain(lastRun); });
 
 // ------------------------------------------------------------------ settings
-// The settings live in two places: the painter and budget in the New painting dialog, and
-// the keep going top-ups in the settings drawer. Each input is marked data-setting="name".
-// Every change is saved on the server straight away, so they carry over to the next painting.
-const form = $("settings-form");
+// The settings (painter and budget) live in the New painting dialog. Each input is marked
+// data-setting="name". Every change is saved on the server straight away, so they carry
+// over to the next painting. Keep going top-ups aren't settings: they're typed when paused.
 const settingInputs = () => document.querySelectorAll("[data-setting]");
 const settingInput = (name) => document.querySelector(`[data-setting="${name}"]`);
 let settingsLocked = false;
@@ -709,13 +733,8 @@ function syncLooksInput() {
 
 function lockSettings(locked) {
   settingsLocked = locked;
-  form.setAttribute("aria-disabled", String(locked));
   for (const input of settingInputs()) input.disabled = locked;
   syncLooksInput();
-  $("settings-help").textContent = locked
-    ? "Locked while Painty is painting."
-    : "Keep going adds these to a paused drawing, read when you click it. "
-      + "The model, vision and budget for each painting are in the New painting dialog.";
 }
 
 document.addEventListener("change", (ev) => {
@@ -724,14 +743,6 @@ document.addEventListener("change", (ev) => {
   if (rerunning && dialog.contains(ev.target)) return; // saved when Paint is pressed
   send({ type: "settings", settings: readSettings() });
 });
-
-function toggleSettings(open) {
-  $("settings").hidden = !open;
-  $("open-settings").setAttribute("aria-expanded", String(open));
-  if (open) form.querySelector("input")?.focus();
-}
-$("open-settings").addEventListener("click", () => toggleSettings($("settings").hidden));
-$("close-settings").addEventListener("click", () => toggleSettings(false));
 
 // ------------------------------------------------------------------ gallery
 async function openGallery(focusId = null) {
@@ -1302,7 +1313,6 @@ document.addEventListener("keydown", (ev) => {
   if (!$("lightbox").hidden) $("lightbox").hidden = true;
   else if (!$("gallery").hidden && !$("gallery-detail").hidden) backToGrid();
   else if (!$("gallery").hidden) $("gallery").hidden = true;
-  else if (!$("settings").hidden) toggleSettings(false);
 });
 
 connect();

@@ -18,7 +18,7 @@ It's an experiment in agent adaptation. The agent can't fall back on SVG or CSS 
 - **Vision on or off.** Run the same prompt with and without sight and compare the results.
 - **Budgets you control.** Shape and look budgets, plus a cap on shapes per call, set in the New painting dialog alongside the model and vision.
 - **Paint again.** Re-run a painting from its finished card or from the gallery. The New painting dialog opens filled in with its prompt, reference image, canvas and settings, so you can change one thing and compare.
-- **Keep going.** When the budget runs out, the drawing pauses. Give it more and the agent carries on exactly where it stopped.
+- **Keep going.** When the shapes run out, or Painty wants to look with no looks left, the drawing pauses and asks how many shapes and looks to add. Type the amounts and the agent carries on exactly where it stopped.
 - **Watch it work.** Shapes appear live, layer by layer. A feed shows every batch, the agent's notes, and a thumbnail of everything it looked at.
 - **Gallery.** Every finished painting is saved with its prompt, settings, shapes, looks, token use and an estimated cost (from prices you set in `.env`), ready to compare or share. Step through a snapshot of every stage (one per paint call): the stages the agent looked at are marked with an eye, and can switch to exactly what it saw, grid and all. Each model has its own colour, and you can star your favourites. Filters for models, favourites and benchmark paintings stack, and each one's count shows how many paintings it would add to what's showing.
 - **Full tracing.** Every drawing appears in the OpenAI Traces dashboard.
@@ -57,7 +57,7 @@ To run the tests: `python3 -m venv .venv && . .venv/bin/activate && pip install 
 
 ## Settings
 
-These are set on screen and saved between restarts. Changes apply to the next drawing. Everything but the keep going top-ups is in the **New painting** dialog, so you can change it as you ask for a picture; the top-ups are under **Settings**.
+These are set on screen and saved between restarts. Changes apply to the next drawing. They're all in the **New painting** dialog, so you can change them as you ask for a picture. What "Keep going" adds isn't a setting: you type it on the paused card each time (it suggests 20 shapes and 2 looks for whatever ran out, 0 for the rest).
 
 | Setting | Default | What it does |
 |---|---|---|
@@ -69,7 +69,6 @@ These are set on screen and saved between restarts. Changes apply to the next dr
 | Shapes | 60 | Shapes per drawing |
 | Looks | 5 | Looks per drawing |
 | Most shapes in one paint call | 15 | Stops the agent painting everything in one blind batch |
-| Keep going adds (Settings) | 20 shapes, 2 looks | What "Keep going" gives a paused drawing |
 
 ## Benchmark
 
@@ -114,7 +113,7 @@ The whole painting also gets a global offset, which shows whether the grid mode 
 | Variable | Required | Purpose |
 |---|---|---|
 | `OPENAI_API_KEY` | Yes | Calls the models and uploads traces |
-| `PAINTY_MODELS` | No | Models offered in the settings panel, comma separated. The first is the default. They must accept image input for vision and reference images |
+| `PAINTY_MODELS` | No | Models offered in the New painting dialog, comma separated. The first is the default. They must accept image input for vision and reference images |
 | `PAINTY_PRICE_<MODEL>` | No | A model's price, for the cost estimate in the gallery: US dollars per million tokens as `input/cached/output/cache write`, for example `PAINTY_PRICE_GPT_6_1_SOL=2.00/0.10/10.00/2.50`. Leave off the cache write price for models before GPT-5.6, which don't bill writes. `.env.example` has current prices for the default models. The name is the model in capitals with other characters as `_`. Costs use the current prices, so older paintings are priced too |
 | `TRACE_WORKFLOW_NAME` | No | Name shown for each drawing in OpenAI Traces |
 | `OPENAI_AGENTS_DISABLE_TRACING` | No | Set to `true` to stop sending traces to OpenAI |
@@ -128,7 +127,7 @@ The design and the reasons behind it are in [`docs/PDD.md`](docs/PDD.md). In sho
 
 - The agent has three tools: `paint` (an ordered batch of shapes, each written as one short line such as `ellipse 196 180 316 300 #f2c9a0`), `look` (a PNG of the canvas, if vision is on) and `finish` (a title and a note).
 - Every shape becomes one SVG fragment. Your browser shows those fragments, and the server rasterises the very same SVG for the agent's eyes and the gallery, so what you see is exactly what the agent sees.
-- Budgets are enforced in code. When shapes run out, the run ends cleanly with its history kept, so "Keep going" can resume the same conversation.
+- Budgets are enforced in code. When shapes run out, or the agent tries to look with no looks left, the run ends cleanly with its history kept, so "Keep going" can resume the same conversation with the shapes and looks you add.
 
 ## Roadmap
 

@@ -10,8 +10,8 @@ A drawing moves through these states:
                        |   \\--stop----> stopped  (you can save it)
                        |    \\-error---> error    (you can save it)
                        v
-                     paused  (shape budget or turn limit reached)
-                       |--keep going--> painting (same conversation, more budget)
+                     paused  (out of shapes, a look with none left, or the turn limit)
+                       |--keep going--> painting (same conversation, the budget you add)
                        \\--finish here-> finished (saved)
 
 Drawing state is per connection and in memory: refreshing the page starts
@@ -34,7 +34,7 @@ from .config import settings as env
 from .context import Budget, PaintyContext, SendEvent
 from .gallery import Gallery, SaveRequest, settings_dict
 from .hooks import ActivityHooks
-from .painter import PAUSED, build_painter_agent
+from .painter import PAUSED, PAUSED_LOOKS, build_painter_agent
 from .pricing import cost
 from .settings_store import SettingsStore
 from .tools import budget_left
@@ -49,12 +49,25 @@ MAX_PROMPT = 500
 GRID_WORDS = {"frame": "in the ruler frame", "overlay": "with the grid drawn on it", "none": "with no grid"}
 # Spare model calls on top of the budget, for invalid batches and thinking.
 SPARE_TURNS = 10
+# Keep going: what you may add each time (min, max), and what the paused card suggests
+# for whatever has run out. You type the amounts on the card, so nothing is fixed.
+TOP_UP_LIMITS = {"shapes": (0, 500), "looks": (0, 50)}
+TOP_UP_SUGGESTED = {"shapes": 20, "looks": 2}
 
 
 def _turn_limit(budget: Budget) -> int:
     """Hidden runaway guard. Each model call makes at most one tool call, so a
     well-behaved run never needs more than one call per shape and look."""
     return budget.shapes_left + budget.looks_left + SPARE_TURNS
+
+
+def _top_up_amount(value, kind: str) -> int:
+    """A typed top-up as a whole number within TOP_UP_LIMITS (anything else is 0)."""
+    lo, hi = TOP_UP_LIMITS[kind]
+    try:
+        return max(lo, min(hi, int(value)))
+    except (TypeError, ValueError, OverflowError):
+        return 0
 
 
 class Studio:
@@ -89,7 +102,9 @@ class Studio:
     def hello(self) -> dict:
         return {"type": "hello", "version": __version__,
                 "canvases": {k: list(v) for k, v in CANVAS_SHAPES.items()},
-                "settings": settings_dict(self.store.current), "options": self.store.options(),
+                "settings": settings_dict(self.store.current),
+                "options": {**self.store.options(),
+                            "top_up_limits": {k: list(v) for k, v in TOP_UP_LIMITS.items()}},
                 "benchmarks": card_list(), "benchmark_prompt": BENCHMARK_PROMPT}
 
     # ------------------------------------------------------------ commands
@@ -167,8 +182,9 @@ class Studio:
                                     image=data_url(view))
         self._launch(_first_message(prompt, view, exemplar), label="start")
 
-    async def keep_going(self) -> None:
-        """Top up the budget and carry on the same conversation."""
+    async def keep_going(self, shapes=0, looks=0) -> None:
+        """Add the shapes and looks typed on the paused card (either may be 0) and
+        carry on the same conversation."""
         if self.state != "paused" or not self.ctx or self.history is None:
             await self._error("There's no paused drawing to continue.")
             return
@@ -176,13 +192,22 @@ class Studio:
             await self._error("A benchmark has a fixed budget, so it can't keep going. "
                               "Finish here to save it for scoring.")
             return
-        s = self.store.current  # top-up sizes are read live
-        looks = s.top_up_looks if self.ctx.settings.vision else 0
-        self.ctx.budget.top_up(s.top_up_shapes, looks)
+        shapes = _top_up_amount(shapes, "shapes")
+        looks = _top_up_amount(looks, "looks") if self.ctx.settings.vision else 0
+        b = self.ctx.budget
+        if b.shapes_left + shapes <= 0:
+            await self._error("Painty has no shapes left, so add at least one to keep going.")
+            return
+        self.ctx.wants_look = False
+        if shapes or looks:
+            b.top_up(shapes, looks)
         await self.ctx.send_budget()
-        extra = f"{s.top_up_shapes} more shapes" + (f" and {looks} more looks" if looks else "")
-        await self.ctx.activity("agent", f"⏩ Keep going: {extra}")
-        message = (f"You have been given {extra}. {budget_left(self.ctx)} Carry on from where you stopped, "
+        added = " and ".join([f"{n} more {what}" for n, what in ((shapes, "shapes"), (looks, "looks")) if n])
+        await self.ctx.activity("agent", f"⏩ Keep going: {added or 'nothing added'}")
+        given = f"You have been given {added}." if added else "No more shapes or looks were added."
+        blind = (" You have no looks left, so carry on from what you already know."
+                 if self.ctx.settings.vision and b.looks_left == 0 else "")
+        message = (f"{given} {budget_left(self.ctx)}{blind} Carry on from where you stopped, "
                    "and call finish when the painting is done.")
         items = self.history + [{"role": "user", "content": message}]
         self._launch(items, label="keep going")
@@ -234,6 +259,8 @@ class Studio:
                 await self._save_and_finish("finished", ctx.finish_title, ctx.finish_note)
             elif result.final_output == PAUSED:
                 await self._pause("shapes")
+            elif result.final_output == PAUSED_LOOKS:
+                await self._pause("looks")
             else:  # the agent stopped without calling finish: treat its words as the note
                 await self.ctx.activity("agent", "↪️ Painty stopped without calling finish",
                                         str(result.final_output or ""))
@@ -253,15 +280,20 @@ class Studio:
             await self._quietly(self._set_state("error", reason=_short_error(exc)))
 
     async def _pause(self, reason: str) -> None:
-        s = self.store.current
-        why = ("The shape budget is used up." if reason == "shapes"
-               else "The hidden turn limit was reached.")
+        """Pause and ask how much to add. top_up holds the amounts the paused card
+        suggests (only for what has run out; looks is None when painting blind),
+        or is None for a benchmark, which can only finish here."""
+        why = {"shapes": "The shape budget is used up.",
+               "looks": "Painty wanted to look, but it has no looks left.",
+               }.get(reason, "The hidden turn limit was reached.")
         if self.ctx.benchmark:  # a fixed budget: no top-ups, only finish here
             await self._set_state("paused", reason=why, top_up=None)
             return
-        await self._set_state("paused", reason=why,
-                              top_up={"shapes": s.top_up_shapes,
-                                      "looks": s.top_up_looks if self.ctx.settings.vision else 0})
+        b, vision = self.ctx.budget, self.ctx.settings.vision
+        await self._set_state("paused", reason=why, top_up={
+            "shapes": TOP_UP_SUGGESTED["shapes"] if b.shapes_left == 0 else 0,
+            "looks": (TOP_UP_SUGGESTED["looks"] if b.looks_left == 0 else 0) if vision else None,
+        })
 
     async def _score(self) -> tuple[dict | None, bytes | None]:
         """A benchmark drawing's score and difference picture, worked out off the event

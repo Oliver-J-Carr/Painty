@@ -29,7 +29,6 @@
     </div>
     <nav class="topbar-actions">
       <button type="button" class="ghost" id="open-gallery">Gallery</button>
-      <button type="button" class="ghost" id="open-settings" aria-expanded="false" aria-controls="settings">Settings</button>
     </nav>
   </header>
 
@@ -65,13 +64,19 @@
           <p id="prompt-text"></p>
         </div>
 
-        <div class="outcome outcome-row" id="paused" hidden>
+        <form class="outcome" id="paused" autocomplete="off" hidden>
           <p class="outcome-title" id="paused-text">Out of shapes.</p>
-          <div class="outcome-actions">
-            <button type="button" class="primary" id="keep-going">Keep going</button>
-            <button type="button" class="ghost-dark" id="finish-here">Finish here</button>
+          <div class="outcome-row top-up">
+            <div class="top-up-fields" id="top-up-fields">
+              <label>Add shapes <input type="number" id="top-up-shapes" inputmode="numeric"></label>
+              <label id="top-up-looks-field">Add looks <input type="number" id="top-up-looks" inputmode="numeric"></label>
+            </div>
+            <div class="outcome-actions">
+              <button type="submit" class="primary" id="keep-going">Keep going</button>
+              <button type="button" class="ghost-dark" id="finish-here">Finish here</button>
+            </div>
           </div>
-        </div>
+        </form>
 
         <div class="outcome" id="finished" hidden>
           <div class="outcome-row">
@@ -172,22 +177,6 @@
       </div>
     </form>
   </dialog>
-
-  <!-- Settings drawer -->
-  <aside class="drawer" id="settings" aria-label="Settings" hidden>
-    <div class="drawer-head">
-      <h2>Settings</h2>
-      <button type="button" class="close" id="close-settings" aria-label="Close settings">×</button>
-    </div>
-    <form id="settings-form" class="settings-form">
-      <fieldset>
-        <legend>Keep going adds</legend>
-        <label>Shapes <input type="number" data-setting="top_up_shapes" inputmode="numeric"></label>
-        <label>Looks <input type="number" data-setting="top_up_looks" inputmode="numeric"></label>
-      </fieldset>
-      <p class="settings-help" id="settings-help"></p>
-    </form>
-  </aside>
 
   <!-- Gallery overlay -->
   <div class="overlay" id="gallery" role="dialog" aria-modal="true" aria-labelledby="gallery-title" hidden>

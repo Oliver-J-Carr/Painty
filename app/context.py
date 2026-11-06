@@ -106,6 +106,7 @@ class PaintyContext:
     tokens: Tokens = field(default_factory=Tokens)      # every model call so far, all segments
     finish_title: str | None = None    # set by the finish tool
     finish_note: str = ""
+    wants_look: bool = False           # it called look with none left: pause to ask for more
     started_at: float = field(default_factory=time.time)
     # Serialises painting, so batches always land in the order they were made.
     paint_lock: asyncio.Lock = field(default_factory=asyncio.Lock)

@@ -15,6 +15,7 @@ from .tools import tools_for
 from .view import DEFAULT_GRID, GRID_NOTES
 
 PAUSED = "paused: shape budget used up"
+PAUSED_LOOKS = "paused: wanted to look with no looks left"
 
 # The reference section's last line depends on whether Painty can see its canvas.
 REFERENCE_CHECK_SEEN = ("When you look, compare your canvas with the reference: what is in the wrong place, "
@@ -65,15 +66,18 @@ def _stop_when_done(ctx: RunContextWrapper[PaintyContext],
                     results: list[FunctionToolResult]) -> ToolsToFinalOutputResult:
     """Called by the SDK after each round of tool calls: should the run end here?
 
-    It ends when the agent called finish, or when the shape budget is used up.
-    Ending here (rather than raising) keeps the conversation history complete,
-    so "keep going" can resume it exactly where it stopped.
+    It ends when the agent called finish, when the shape budget is used up, or
+    when it tried to look with no looks left (outside a benchmark). Ending here
+    (rather than raising) keeps the conversation history complete, so "keep
+    going" can resume it exactly where it stopped.
     """
     c = ctx.context
     if c.finished:
         return ToolsToFinalOutputResult(is_final_output=True, final_output="finished")
     if c.budget.shapes_left <= 0:
         return ToolsToFinalOutputResult(is_final_output=True, final_output=PAUSED)
+    if c.wants_look:
+        return ToolsToFinalOutputResult(is_final_output=True, final_output=PAUSED_LOOKS)
     return ToolsToFinalOutputResult(is_final_output=False)
 
 

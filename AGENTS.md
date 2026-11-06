@@ -18,7 +18,7 @@ Guidance for AI coding agents working on Painty. Read this before changing code.
 - Keep changes focused on the task. No drive-by refactors or reformatting.
 - Update `README.md` when user-facing behaviour, setup or env vars change. Update `docs/PDD.md` when a design decision changes.
 - When adding an env var: add it to `app/config.py`, `.env.example` (placeholder value only) and the README table.
-- When adding a setting: add it to `StudioSettings` and `LIMITS` in `app/settings_store.py`, an input marked `data-setting="name"` in `static/index.html` (the New painting dialog for anything chosen per drawing, the settings drawer otherwise), and a test.
+- When adding a setting: add it to `StudioSettings` and `LIMITS` in `app/settings_store.py`, an input marked `data-setting="name"` in `static/index.html` (in the New painting dialog), and a test.
 - Run `pytest -q` before saying a change is done.
 - Ask before making live model calls beyond a quick smoke test. They cost API usage, and each look sends an image.
 
@@ -73,7 +73,7 @@ docker image prune
 - `app/benchmark_score.py`: scores a benchmark painting against its card, item by item. Run when a benchmark painting is saved (`meta.benchmark_score`, `benchmark-diff.png`), and from the command line (`python -m app.benchmark_score`, `--rescore` to save scores again). Bump `SCORER_VERSION` when the scoring changes. Pillow only.
 - `app/gallery.py`: saves finished paintings as plain files under `DATA_DIR/gallery`, including a snapshot of each stage (one per paint call that painted), rendered at save time.
 - `app/pricing.py`: the estimated cost of a painting from its tokens and the `PAINTY_PRICE_<MODEL>` prices. Worked out live for `/api/gallery` (each item's `cost`) and the finished status.
-- `app/settings_store.py`: the on-screen settings (in the New painting dialog and the settings drawer), clamped and saved to `DATA_DIR/settings.json`.
+- `app/settings_store.py`: the on-screen settings (in the New painting dialog), clamped and saved to `DATA_DIR/settings.json`.
 - `app/context.py`: `PaintyContext` (canvas, budget, looks, event helpers), passed to tools and hooks, never sent to the model.
 - `app/hooks.py`: `RunHooks` that feed the activity panel.
 - `app/prompts/*.md`: prompts, loaded once at import time. `{{NAME}}` placeholders are filled by `prompts.fill()`.
@@ -98,9 +98,9 @@ docker image prune
 - **The grid is only in the agent's view.** `view.agent_view` applies the drawing's grid mode: `frame` (a numbered ruler frame and faint grid lines every 64 px; the image is 60 px bigger than the canvas), `overlay` (the same grid and small numbers drawn on the picture, exactly canvas-sized) or `none`. It applies to looks, the reference and the exemplar alike. The painting, the browser canvas and the gallery PNG never have a grid. Prompts describe the view through `GRID_NOTES`, never hard-coded ruler wording.
 - **Vision is a toggle, for comparison.** With vision off, the `look` tool is not registered at all and the prompt says it is painting blind.
 - **Budgets live in tools, not prompts alone.** Shape and look budgets are enforced in code. The per-call cap stops the agent dumping everything down in one blind batch.
-- **Pausing ends the run cleanly.** When the shape budget hits 0, `_stop_when_done` ends the run with complete history. "Keep going" tops up the budget and runs again with that history plus a user message. The hidden turn limit (`shapes_left + looks_left + 10`) is a runaway guard; hitting it also pauses, rebuilding history from the exception.
+- **Pausing ends the run cleanly.** When the shape budget hits 0, or the agent calls `look` with no looks left (`wants_look`; not in a benchmark), `_stop_when_done` ends the run with complete history. "Keep going" adds the shapes and looks typed on the paused card (either may be 0, but there must be a shape left) and runs again with that history plus a user message. The hidden turn limit (`shapes_left + looks_left + 10`) is a runaway guard; hitting it also pauses, rebuilding history from the exception.
 - **Keep the prompt cacheable.** The instructions must be identical on every model call within a run, because they come before the whole history and the cache only reuses an exact prefix. Never put live counts in them; they belong in tool results. Never edit earlier history items in place. The drawing id is the `prompt_cache_key`.
-- **Settings are frozen per drawing.** A drawing copies the settings when it starts. Only the top-up sizes are read live, when "Keep going" is clicked. Settings are locked while painting.
+- **Settings are frozen per drawing.** A drawing copies the settings when it starts. Settings are locked while painting. Keep going top-ups are not settings: they're typed each time.
 - **State.** Drawing state is per connection and in memory (refresh = fresh studio). Only the gallery and settings persist, as plain files in `DATA_DIR`. No database.
 - **Tracing.** Each run segment (start, each keep going) is one trace, all grouped by the drawing id. `OPENAI_AGENTS_DISABLE_TRACING=true` turns it off.
 - **No front-end build step.** Plain ES modules, no framework, no bundler. Only external resource: Google Fonts.
@@ -128,17 +128,17 @@ docker image prune
 
 - Browser to server:
   - `{"type": "paint", "prompt": "...", "canvas": "square", "reference": "data:image/jpeg;base64,..."}`: start a new drawing (max 500 characters). `canvas` is `square`, `landscape` or `portrait`; anything else means square. `reference` is optional; with it, `prompt` may be empty (recreate the image). `benchmark` (a card name) instead makes that card the reference and sets the canvas shape and the shape and look budgets (fixed per card, no keep going); an unknown card is refused.
-  - `{"type": "keep_going"}`: top up a paused drawing and carry on.
+  - `{"type": "keep_going", "shapes": 20, "looks": 2}`: add that many shapes and looks to a paused drawing (clamped to `TOP_UP_LIMITS`; looks ignored when painting blind) and carry on. Refused if it would leave no shapes.
   - `{"type": "stop"}`: cancel the running drawing.
   - `{"type": "save"}`: save a paused, stopped or failed drawing to the gallery.
   - `{"type": "settings", "settings": {...}}`: update settings (refused while painting).
 - Server to browser:
-  - `hello`: `version`, `canvases` (`{shape: [width, height]}`), `settings`, `options` (models, efforts, grids, limits), `benchmarks` (`[{name, title, about, shape, shapes, shape_budget, look_budget}]`) and `benchmark_prompt`.
+  - `hello`: `version`, `canvases` (`{shape: [width, height]}`), `settings`, `options` (models, efforts, grids, limits, top_up_limits), `benchmarks` (`[{name, title, about, shape, shapes, shape_budget, look_budget}]`) and `benchmark_prompt`.
   - `canvas_reset`: a new drawing started (`prompt`, `reference` (a PNG data URL or null), `benchmark` (a card name or null), `settings`, `shape`, `width`, `height`). Clear and resize the canvas, and clear the feed.
   - `shapes`: `shapes` as `[{n, svg}]` in paint order, plus `key` (the tool call id).
   - `look`: `key`, `n`, `focus` and `image` (a PNG data URL of exactly what the agent saw).
   - `budget`: shapes and looks used, total and left, and `top_ups`.
-  - `status`: `state` of `painting`, `paused` (`reason`, `top_up`: null for a benchmark, which can't keep going), `finished` (`title`, `note`, `ending`, `saved_id`, `meta`, `benchmark_score` (null unless a scored benchmark), `tokens`, `cost`), `stopped` or `error` (`reason`).
+  - `status`: `state` of `painting`, `paused` (`reason`, `top_up`: the suggested `shapes` and `looks` to add (`looks` null when painting blind), or null for a benchmark, which can't keep going), `finished` (`title`, `note`, `ending`, `saved_id`, `meta`, `benchmark_score` (null unless a scored benchmark), `tokens`, `cost`), `stopped` or `error` (`reason`).
   - `phase`: `thinking`, `paint`, `look` or `finish`, shown in the top bar's status line while painting.
   - `activity`: feed entries. Tool entries share a `key` and go from `running` to `done` or `error`. An optional `image` (a data URL) shows as a thumbnail, such as the reference image as Painty sees it.
   - `settings`: the current settings after an update.

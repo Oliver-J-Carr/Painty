@@ -236,21 +236,23 @@ The book's Ch 9 says every agentic loop needs a goal, an iteration strategy and 
 | Limit | Default | Enforced by |
 |---|---|---|
 | Shapes per drawing | 60 | `paint`; the run pauses at 0 |
-| Looks per drawing | 5 | `look` returns an error at 0 |
+| Looks per drawing | 5 | `look` returns an error at 0, and the run pauses to ask for more (a benchmark carries on) |
 | Shapes per `paint` call | 15 | `paint`. Stops the agent painting everything in one blind batch, which matters for the vision comparison |
 | Hidden turn limit | shapes left + looks left + 10 | the SDK's `max_turns`. A runaway guard: one model call per shape and look is the most a sensible run needs |
 
-All the visible limits are set on screen (not env vars), so they can be changed while experimenting: the drawing's budgets in the New painting dialog, the keep going top-ups in the settings drawer.
+All the visible limits are set on screen (not env vars), so they can be changed while experimenting: the drawing's budgets in the New painting dialog, and what to add each time a drawing pauses on the paused card.
 
 ### 6.1 Keep going
 
-When the shape budget runs out, the drawing **pauses** rather than halting, because the agent may be nearly done. The UI offers "Keep going" (adds the top-up amounts: default 20 shapes and 2 looks) or "Finish here" (saves as is).
+When the shape budget runs out, the drawing **pauses** rather than halting, because the agent may be nearly done. It also pauses when the agent tries to look with no looks left: it wanted to check something, so you decide whether it gets to. Running out of looks alone doesn't pause it, since it may not want another. The paused card asks how many shapes and looks to add, filled in with a suggestion for whatever ran out (20 shapes, 2 looks) and 0 for the rest, then offers "Keep going" or "Finish here" (saves as is).
 
-How it works: the agent's `tool_use_behavior` ends the run cleanly when the budget hits 0, so the SDK returns the complete conversation history. "Keep going" tops up the budget and runs the agent again with that history plus a message saying how much more it has. Dynamic instructions show the new totals. Hitting the hidden turn limit also pauses, with the history rebuilt from the exception's run data.
+The amounts are typed each time, not fixed settings. Fixed top-ups in a settings drawer were easy to forget to change, and the right amount depends on the painting. Either may be 0 (keep going without more looks, say), as long as the agent has a shape left. With 0 looks left, the keep going message tells it to carry on from what it already knows. A benchmark never pauses on a refused look: its budget is fixed, so it carries on.
+
+How it works: the agent's `tool_use_behavior` ends the run cleanly when the shape budget hits 0 or a look was refused, so the SDK returns the complete conversation history. "Keep going" tops up the budget and runs the agent again with that history plus a message saying how much more it has. Dynamic instructions show the new totals. Hitting the hidden turn limit also pauses, with the history rebuilt from the exception's run data.
 
 ### 6.2 Settings are frozen per drawing
 
-A drawing copies the settings when it starts, so changing them never changes the model, vision or budget under a running agent. Settings are locked while painting. Top-up sizes are read live when "Keep going" is clicked.
+A drawing copies the settings when it starts, so changing them never changes the model, vision or budget under a running agent. Settings are locked while painting.
 
 ## 7. Prompting
 
@@ -287,8 +289,8 @@ idle --paint--> painting --finish--------> finished (saved)
 - **Canvas on a cutting mat.** The backdrop is a craft cutting mat whose grid echoes the coordinate grid the agent works in. The canvas is the one loud element.
 - **Meters** for shapes (bar) and looks (dots).
 - **Activity feed** (permanent right column): every batch with its note and shape counts, every look with a thumbnail of exactly what the agent saw (click to enlarge), errors, and the finish.
-- **Paused card** with Keep going and Finish here. **Finished card** with title, note, shape and token counts, and a link to the gallery.
-- **Settings where you use them.** The New painting dialog holds the model, reasoning effort, vision, the exemplar toggle, the grid mode and the drawing's budgets, so a comparison run is set up in the same place it's asked for. The looks field is greyed out with vision off. The settings drawer keeps only the keep going top-ups, which matter mid-drawing. All of them are still one set of saved settings: every change is saved straight away and is remembered for the next painting, and the dialog sends its values again just before `paint`, so a drawing starts with exactly what was shown.
+- **Paused card** asking how many shapes and looks to add (looks hidden when painting blind), with Keep going and Finish here. **Finished card** with title, note, shape and token counts, and a link to the gallery.
+- **Settings where you use them.** The New painting dialog holds the model, reasoning effort, vision, the exemplar toggle, the grid mode and the drawing's budgets, so a comparison run is set up in the same place it's asked for. The looks field is greyed out with vision off. There is no separate settings drawer: its last job, the keep going top-ups, moved onto the paused card. The settings are one saved set: every change is saved straight away and is remembered for the next painting, and the dialog sends its values again just before `paint`, so a drawing starts with exactly what was shown.
 - **New painting dialog.** The top bar has a New painting button (Stop while painting), then a short status line saying what Painty is doing (thinking, painting, looking) or that the connection dropped; the feed has the detail. The button opens a dialog with the prompt (a textarea: Enter paints, Shift+Enter starts a new line), an optional reference image (choose, drop or paste; shown cropped to the canvas) and the canvas shape. It replaced the single-line prompt box in the top bar, which had no room for more, and leaves space for style suggestions. The canvas choice is kept until the page reloads; the prompt and image are cleared once a painting starts.
 - **Paint again.** The finished card and each gallery painting have a Paint again button. It opens the New painting dialog filled in with that painting's prompt, reference image, canvas shape and painter and budget settings (the starting budgets, not the top-ups), rather than painting straight away, so one thing can be changed for a comparison. The filled-in settings are only a suggestion until Paint is pressed: closing the dialog clears the prompt and image and puts the saved settings back. Paintings from before grid modes and the exemplar are re-run with the ruler frame and no exemplar, as they were made. A model no longer in `PAINTY_MODELS` is swapped for the current one, and the dialog says so. Front end only: it sends the same `settings` and `paint` messages as a new painting, and the gallery's `reference.png` is already canvas-sized, so it isn't cropped again.
 - **The reference on screen.** Under the canvas, next to the prompt, a small copy of the reference (click to enlarge). In the gallery, its tile shows the reference small in the corner, and the stage viewer can swap the preview to the reference for comparison.
@@ -401,3 +403,4 @@ Endings: `finished` (the agent called finish), `ended` (it stopped without calli
 | 6 Nov 2026 | Gallery: a Benchmarks filter, and chip counts that stack on the other active filters |
 | 6 Nov 2026 | Benchmark paintings scored when saved: score in meta.json, difference picture saved, shown on the finished card, the gallery tile and the painting's page; `--rescore` to update |
 | 6 Nov 2026 | Benchmark budgets fixed per card and locked: three times the card's shapes plus 10 (rounded up to 5) and 3 looks, no top-ups; vision stays a choice |
+| 6 Nov 2026 | Keep going amounts typed on the paused card each time, not fixed settings; a refused look pauses to ask for more looks (not in a benchmark); the settings drawer removed |

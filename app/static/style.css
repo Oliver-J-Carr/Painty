@@ -142,6 +142,14 @@ button, input, select, textarea { font: inherit; }
 .outcome-score strong { font-variant-numeric: tabular-nums; }
 .outcome .ghost-dark { padding: 6px 12px; }
 .outcome-again { margin-top: 10px; }
+/* Keep going: how many shapes and looks to add, typed each time. */
+.top-up { margin-top: 10px; align-items: flex-end; }
+.top-up-fields { display: flex; gap: 12px; flex-wrap: wrap; }
+.top-up-fields label { display: grid; gap: 4px; font-size: 13px; color: var(--graphite-soft); }
+.top-up-fields input {
+  width: 96px; padding: 6px 8px; border-radius: 4px; border: 1px solid #b9bcb2; background: #fff;
+  color: var(--graphite); font-size: 15px;
+}
 /* Painty's own words get the casual cut of the typeface. */
 .painting-title { margin: 0; font-size: 22px; font-weight: 700; font-variation-settings: "CASL" 1; flex: 1 1 auto; }
 .painting-note { margin: 4px 0 0; font-variation-settings: "CASL" 1; max-height: 6em; overflow-y: auto; }
@@ -229,25 +237,9 @@ button, input, select, textarea { font: inherit; }
 .entry-look { margin-top: 8px; padding: 0; border: 0; background: none; cursor: zoom-in; display: block; }
 .entry-look img { display: block; width: 100%; max-width: 280px; border-radius: 3px; box-shadow: 0 0 0 1px var(--paper-edge); }
 
-/* ---------- settings drawer ---------- */
-.drawer {
-  position: fixed; top: 0; right: 0; bottom: 0; z-index: 20;
-  width: min(400px, 100vw); overflow-y: auto;
-  background: var(--paper); color: var(--graphite);
-  padding: 18px 22px; box-shadow: -18px 0 40px rgba(8, 26, 19, 0.4);
-}
+/* ---------- shared heads (dialog, gallery) ---------- */
 .drawer-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .drawer-head h2 { margin: 0; font-size: 20px; }
-.settings-form fieldset { border: 0; border-top: 1px solid var(--paper-edge); margin: 0; padding: 14px 0 6px; }
-.settings-form legend { font-weight: 700; padding: 0; margin-bottom: 8px; float: left; width: 100%; }
-.settings-form label { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 8px 0; clear: both; }
-.settings-form select, .settings-form input[type="number"] {
-  width: 150px; padding: 6px 8px; border-radius: 4px; border: 1px solid #b9bcb2; background: #fff; color: var(--graphite);
-}
-.settings-form label.toggle { justify-content: flex-start; }
-.settings-form input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--mat); }
-.settings-form[aria-disabled="true"] fieldset { opacity: 0.55; }
-.settings-help { color: var(--graphite-soft); font-size: 13px; }
 
 /* ---------- overlays ---------- */
 .overlay {
