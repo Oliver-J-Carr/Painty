@@ -6,11 +6,11 @@ import json
 import pytest
 from PIL import Image, ImageChops
 
-from app.benchmark import CARDS, LEVELS, card_canvas, card_json, card_png, card_text
+from app.benchmark import BENCHMARK_LOOKS, CARDS, LEVELS, card_canvas, card_json, card_png, card_text
 from app.benchmark_score import best_offset, main, score_folder, score_images, _paint_mask
 from app.canvas import Canvas, check_batch
 from app.exemplar import SHEETS
-from app.settings_store import StudioSettings
+from app.settings_store import LIMITS, StudioSettings
 from app.view import render_png
 
 
@@ -27,6 +27,8 @@ def test_every_card_is_valid_and_fits_the_default_budget(name):
     card = CARDS[name]
     w, h = card.size
     assert card.items and card.shape_count <= StudioSettings().shape_budget
+    assert 3 * card.shape_count + 10 <= card.shape_budget <= LIMITS["shape_budget"][1]
+    assert card.shape_budget % 5 == 0 and card.look_budget == BENCHMARK_LOOKS
     for item in card.items:
         assert item.level in LEVELS
         _, errors, _ = check_batch(list(item.shapes), w, h)
@@ -69,6 +71,7 @@ def test_card_text_and_json_carry_every_shape():
     for name, card in CARDS.items():
         data = card_json(name)
         assert data["name"] == name and [data["width"], data["height"]] == list(card.size)
+        assert (data["shape_budget"], data["look_budget"]) == (card.shape_budget, card.look_budget)
         assert sum(len(i["shapes"]) for i in data["items"]) == card.shape_count
         assert all(len(i["box"]) == 4 for i in data["items"])
         text = card_text(name)

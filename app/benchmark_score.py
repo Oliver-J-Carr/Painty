@@ -214,7 +214,8 @@ def _table(result: CardScore, meta: dict) -> str:
     lines = [f"{meta.get('id', '')}  card {result.card}  model {s.get('model', '?')}"
              f"  effort {s.get('reasoning_effort') or 'default'}  vision {'on' if s.get('vision') else 'off'}"
              f"  grid {s.get('grid', 'frame')}  exemplar {'on' if s.get('exemplar') else 'off'}",
-             f"shapes {meta.get('shapes_used', '?')}  looks {meta.get('looks_used', '?')}", "",
+             f"shapes {meta.get('shapes_used', '?')} of {meta.get('shapes_budget', '?')}  "
+             f"looks {meta.get('looks_used', '?')} of {meta.get('looks_budget', '?')}", "",
              f"{'item':<30} {'level':<13} {'score':>6} {'shape':>6} {'colour':>7} {'offset':>8} {'shifted':>8}"]
     for i in result.items:
         colour = "-" if i.colour is None else f"{i.colour:.2f}"
@@ -243,11 +244,12 @@ def _summary(gallery: Path) -> str:
         rows.append(f"{meta_path.parent.name[:15]:<15} {result.card:<12} {s.get('model', '?'):<16} "
                     f"{(s.get('reasoning_effort') or 'default'):<8} {'on' if s.get('vision') else 'off':<6} "
                     f"{s.get('grid', 'frame'):<7} {'on' if s.get('exemplar') else 'off':<8} "
-                    f"{meta.get('shapes_used', 0):>6} {result.score:6.3f} {_offset(result.offset):>8}")
+                    f"{meta.get('shapes_used', 0):>6} {meta.get('looks_used', 0):>5} "
+                    f"{result.score:6.3f} {_offset(result.offset):>8}")
     if not rows:
         return f"No benchmark paintings in {gallery.resolve()}."
     head = (f"{'painted':<15} {'card':<12} {'model':<16} {'effort':<8} {'vision':<6} {'grid':<7} "
-            f"{'exemplar':<8} {'shapes':>6} {'score':>6} {'offset':>8}")
+            f"{'exemplar':<8} {'shapes':>6} {'looks':>5} {'score':>6} {'offset':>8}")
     return "\n".join([head, *rows])
 
 

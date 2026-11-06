@@ -93,6 +93,7 @@ docker image prune
 - **A reference image goes in the first user message, once.** In the same grid mode as `look`, cropped to the canvas size. Never through a tool (each call would add the image again). No text with it means recreate it.
 - **The exemplar goes first in the first user message, once.** Its text and sheets, then the prompt, then any reference. Built from code (`app/exemplar.py`), never a saved PNG, so it can't drift from the renderer. Every example must pass `check_batch` on the sheet (tested). A toggle, for comparison.
 - **The same model sees its own work.** `look` returns the PNG to the painter itself via `ToolOutputImage`. Don't route images through a separate describing model (the book's Ch 7 critic pattern): that's what this project avoids.
+- **Benchmark budgets are fixed per card.** The card sets the shape and look budgets for that drawing (the saved settings keep your own) and there are no top-ups, so runs compare fairly.
 - **Benchmark cards are written in the notation.** Painted by the real renderer, never a saved image, so a perfect copy is always possible and the score measures the model, not the paint system. No card line may repeat an exemplar line (tested). The server paints the chosen card itself, so the reference is exact, and saves the card's definition with the painting, so scoring uses the card as it was.
 - **The grid is only in the agent's view.** `view.agent_view` applies the drawing's grid mode: `frame` (a numbered ruler frame and faint grid lines every 64 px; the image is 60 px bigger than the canvas), `overlay` (the same grid and small numbers drawn on the picture, exactly canvas-sized) or `none`. It applies to looks, the reference and the exemplar alike. The painting, the browser canvas and the gallery PNG never have a grid. Prompts describe the view through `GRID_NOTES`, never hard-coded ruler wording.
 - **Vision is a toggle, for comparison.** With vision off, the `look` tool is not registered at all and the prompt says it is painting blind.
@@ -126,18 +127,18 @@ docker image prune
 ## WebSocket protocol
 
 - Browser to server:
-  - `{"type": "paint", "prompt": "...", "canvas": "square", "reference": "data:image/jpeg;base64,..."}`: start a new drawing (max 500 characters). `canvas` is `square`, `landscape` or `portrait`; anything else means square. `reference` is optional; with it, `prompt` may be empty (recreate the image). `benchmark` (a card name) instead makes that card the reference and sets the canvas shape; an unknown card is refused.
+  - `{"type": "paint", "prompt": "...", "canvas": "square", "reference": "data:image/jpeg;base64,..."}`: start a new drawing (max 500 characters). `canvas` is `square`, `landscape` or `portrait`; anything else means square. `reference` is optional; with it, `prompt` may be empty (recreate the image). `benchmark` (a card name) instead makes that card the reference and sets the canvas shape and the shape and look budgets (fixed per card, no keep going); an unknown card is refused.
   - `{"type": "keep_going"}`: top up a paused drawing and carry on.
   - `{"type": "stop"}`: cancel the running drawing.
   - `{"type": "save"}`: save a paused, stopped or failed drawing to the gallery.
   - `{"type": "settings", "settings": {...}}`: update settings (refused while painting).
 - Server to browser:
-  - `hello`: `version`, `canvases` (`{shape: [width, height]}`), `settings`, `options` (models, efforts, grids, limits), `benchmarks` (`[{name, title, about, shape, shapes}]`) and `benchmark_prompt`.
+  - `hello`: `version`, `canvases` (`{shape: [width, height]}`), `settings`, `options` (models, efforts, grids, limits), `benchmarks` (`[{name, title, about, shape, shapes, shape_budget, look_budget}]`) and `benchmark_prompt`.
   - `canvas_reset`: a new drawing started (`prompt`, `reference` (a PNG data URL or null), `benchmark` (a card name or null), `settings`, `shape`, `width`, `height`). Clear and resize the canvas, and clear the feed.
   - `shapes`: `shapes` as `[{n, svg}]` in paint order, plus `key` (the tool call id).
   - `look`: `key`, `n`, `focus` and `image` (a PNG data URL of exactly what the agent saw).
   - `budget`: shapes and looks used, total and left, and `top_ups`.
-  - `status`: `state` of `painting`, `paused` (`reason`, `top_up`), `finished` (`title`, `note`, `ending`, `saved_id`, `meta`, `tokens`, `cost`), `stopped` or `error` (`reason`).
+  - `status`: `state` of `painting`, `paused` (`reason`, `top_up`: null for a benchmark, which can't keep going), `finished` (`title`, `note`, `ending`, `saved_id`, `meta`, `tokens`, `cost`), `stopped` or `error` (`reason`).
   - `phase`: `thinking`, `paint`, `look` or `finish`, shown in the top bar's status line while painting.
   - `activity`: feed entries. Tool entries share a `key` and go from `running` to `done` or `error`. An optional `image` (a data URL) shows as a thumbnail, such as the reference image as Painty sees it.
   - `settings`: the current settings after an update.

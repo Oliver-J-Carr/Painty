@@ -839,3 +839,52 @@ def test_a_painting_without_a_card_has_no_benchmark(tmp_path):
     folder = tmp_path / "gallery" / studio.saved_id
     assert "benchmark" not in json.loads((folder / "meta.json").read_text())
     assert not (folder / "benchmark.json").exists()
+
+
+def test_a_benchmark_has_a_fixed_budget_and_no_top_ups(tmp_path):
+    from app.benchmark import CARDS
+
+    card = CARDS["basic"]  # 8 shapes: a budget of 35 shapes and 3 looks
+    assert card.shape_budget == 35
+    batch = [rect(0, 0, 10 + i, 10) for i in range(15)]
+    steps = [[paint(batch, "c1")], [look("c2")], [paint(batch, "c3")], [paint(batch[:5], "c4")]]
+    studio, model, events = make_studio(tmp_path, steps, exemplar=False, shape_budget=200, look_budget=9)
+
+    async def go():
+        await studio.start("copy it", "", None, benchmark="basic")
+        await _wait(studio)
+    run(go)
+
+    # The card's budget, not the saved settings, which keep your own.
+    assert (studio.ctx.budget.shapes_total, studio.ctx.budget.looks_total) == (card.shape_budget, card.look_budget)
+    assert studio.ctx.settings.shape_budget == card.shape_budget
+    assert studio.store.current.shape_budget == 200 and studio.store.current.look_budget == 9
+    assert f"{card.shape_budget} shapes" in model.calls[0].system_instructions
+
+    # Out of shapes: paused with no top-up offered, and keep going is refused.
+    paused = types(events, "status")[-1]
+    assert paused["state"] == "paused" and paused["top_up"] is None
+
+    async def more():
+        await studio.keep_going()
+    run(more)
+    assert studio.state == "paused" and studio.ctx.budget.top_ups == 0
+    assert "fixed budget" in types(events, "error")[-1]["text"]
+
+    async def save():
+        await studio.save()
+    run(save)
+    meta = json.loads((tmp_path / "gallery" / studio.saved_id / "meta.json").read_text())
+    assert meta["shapes_budget"] == card.shape_budget and meta["looks_budget"] == card.look_budget
+    assert meta["settings"]["shape_budget"] == card.shape_budget
+
+
+def test_a_blind_benchmark_has_no_looks(tmp_path):
+    studio, _, _ = make_studio(tmp_path, [[finish("c1")]], exemplar=False, vision=False)
+
+    async def go():
+        await studio.start("", "", None, benchmark="letters")
+        await _wait(studio)
+    run(go)
+
+    assert studio.ctx.budget.looks_total == 0

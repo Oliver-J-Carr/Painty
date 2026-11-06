@@ -18,12 +18,20 @@ intermediate (rotation, skew, blends), solids (3D shapes from flat ones),
 effects (shading, opacity, soft edges, spray, tapers, bends) and letters
 (text made from lines), then a combined card with a little of each.
 
+Every card has a fixed budget, the same on every run so scores compare fairly:
+three times its own shapes plus ten, and BENCHMARK_LOOKS looks when vision is on.
+Generous on shapes because paint is permanent: every correction after a look
+is a new shape painted over the mistake, and nothing can be undone to win a
+shape back. Correcting what it sees is part of the
+test, but the first attempt should count, so looks are few. There are no top-ups.
+
 A painting made from a card saves the card's definition (benchmark.json) with
 it, so it is scored against the card as it was, even after the cards change.
 """
 
 from __future__ import annotations
 
+import math
 from dataclasses import asdict, dataclass
 from functools import lru_cache
 
@@ -31,6 +39,9 @@ from .canvas import CANVAS_SHAPES, Canvas, check_batch
 from .view import render_png
 
 LEVELS = ("basic", "intermediate", "solids", "effects", "letters")
+BENCHMARK_LOOKS = 3      # looks per benchmark drawing, when vision is on
+SHAPE_ALLOWANCE = 3      # a card's shape budget: this many times its own shapes,
+SHAPE_SPARE = 10         # plus this many, rounded up to 5
 
 # Sent as the prompt (it can be edited in the dialog), so runs are comparable.
 BENCHMARK_PROMPT = ("Reproduce this image as exactly as you can: the same shapes, in the same "
@@ -62,6 +73,15 @@ class Card:
     @property
     def shape_count(self) -> int:
         return sum(len(item.shapes) for item in self.items)
+
+    @property
+    def shape_budget(self) -> int:
+        """Fixed for every run of this card: room to paint it and to paint over mistakes."""
+        return 5 * math.ceil((SHAPE_ALLOWANCE * self.shape_count + SHAPE_SPARE) / 5)
+
+    @property
+    def look_budget(self) -> int:
+        return BENCHMARK_LOOKS
 
 
 def _cells(columns: int, rows: int, width: int, height: int) -> list[tuple[int, int, int, int]]:
@@ -233,7 +253,7 @@ def card_json(name: str) -> dict:
     card = CARDS[name]
     w, h = card.size
     return {"name": card.name, "title": card.title, "about": card.about, "shape": card.shape,
-            "width": w, "height": h,
+            "width": w, "height": h, "shape_budget": card.shape_budget, "look_budget": card.look_budget,
             "items": [{**asdict(item), "box": list(item.box), "shapes": list(item.shapes)}
                       for item in card.items]}
 
@@ -241,4 +261,5 @@ def card_json(name: str) -> dict:
 def card_list() -> list[dict]:
     """Every card, for the New painting dialog."""
     return [{"name": c.name, "title": c.title, "about": c.about, "shape": c.shape,
-             "shapes": c.shape_count} for c in CARDS.values()]
+             "shapes": c.shape_count, "shape_budget": c.shape_budget, "look_budget": c.look_budget}
+            for c in CARDS.values()]

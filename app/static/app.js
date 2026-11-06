@@ -221,9 +221,11 @@ function applyState(e) {
   show("halted", state === "stopped" || state === "error");
 
   if (state === "paused") {
-    const t = e.top_up || {};
-    const looks = t.looks ? ` and ${t.looks} more looks` : "";
-    $("paused-text").textContent = `${e.reason} Give Painty ${t.shapes} more shapes${looks}?`;
+    const t = e.top_up;
+    $("keep-going").hidden = !t; // a benchmark has a fixed budget: finish here only
+    const looks = t?.looks ? ` and ${t.looks} more looks` : "";
+    $("paused-text").textContent = t ? `${e.reason} Give Painty ${t.shapes} more shapes${looks}?`
+      : `${e.reason} A benchmark's budget is fixed, so finish here to save it for scoring.`;
   }
   if (state === "finished") {
     savedId = e.saved_id || null;
@@ -310,7 +312,13 @@ function handle(e) {
     case "look": onLook(e); break;
     case "budget": renderBudget(e); break;
     case "activity": onActivity(e); break;
-    case "settings": savedSettings = e.settings; fillSettings(e.settings); if (state !== "painting") previewBudget(e.settings); break;
+    case "settings":
+      savedSettings = e.settings;
+      fillSettings(e.settings);
+      // Preview the next painting's budget only when no drawing is on the go: a paused,
+      // stopped or failed one keeps its own meters (and its shape count, for saving).
+      if (state === "idle" || state === "finished") previewBudget(e.settings);
+      break;
     case "error": toast(e.text, "error"); break;
   }
 }
@@ -454,6 +462,7 @@ function setupBenchmarks(cards, prompt) {
 function dropBenchmark(clearPrompt) {
   if (benchmark && clearPrompt && $("prompt").value === benchmarkPrompt) $("prompt").value = "";
   benchmark = null;
+  releaseBudget();
 }
 
 async function pickBenchmark(name) {
@@ -469,6 +478,7 @@ async function pickBenchmark(name) {
   await setReference(blob);
   if (!refSource) return;
   benchmark = name;
+  holdBudget(card);
   cropReference(); // shows the card's name in place of the crop note
   if (!$("prompt").value.trim()) $("prompt").value = benchmarkPrompt;
   updatePaintButton();
@@ -553,6 +563,7 @@ async function paintAgain({ prompt, reference, benchmark: card, shape, settings,
     const name = input.dataset.setting;
     if (name in wanted && !(name === "model" && gone)) values[name] = wanted[name];
   }
+  if (card) for (const n of CARD_BUDGET) delete values[n]; // the card sets these; keep your own aside
 
   clearReference();
   if (card && benchmarks.some((c) => c.name === card)) {
@@ -622,8 +633,34 @@ function setupSettings(options, values) {
   fillSettings(values);
 }
 
+// While a benchmark card is chosen, it sets the shape and look budgets and locks them.
+// Your own values are kept aside (and never sent while the card holds the fields), so
+// they come back when the card is removed and stay saved for your next painting.
+const CARD_BUDGET = ["shape_budget", "look_budget"];
+let ownBudget = null; // {shape_budget, look_budget}, while a card holds the fields
+
+function holdBudget(card) {
+  if (!ownBudget) ownBudget = Object.fromEntries(CARD_BUDGET.map((n) => [n, settingInput(n).value]));
+  settingInput("shape_budget").value = card.shape_budget;
+  settingInput("look_budget").value = card.look_budget;
+  const note = $("budget-note");
+  note.textContent = `Set by the benchmark card, the same on every run: ${card.shape_budget} shapes `
+    + `(the card has ${card.shapes}) and ${card.look_budget} looks with vision on, no top-ups.`;
+  note.hidden = false;
+  syncLooksInput();
+}
+
+function releaseBudget() {
+  if (!ownBudget) return;
+  for (const n of CARD_BUDGET) settingInput(n).value = ownBudget[n];
+  ownBudget = null;
+  $("budget-note").hidden = true;
+  syncLooksInput();
+}
+
 function fillSettings(values) {
   for (const [name, value] of Object.entries(values)) {
+    if (ownBudget && CARD_BUDGET.includes(name)) { ownBudget[name] = value; continue; }
     const input = settingInput(name);
     if (!input) continue;
     if (input.type === "checkbox") input.checked = Boolean(value);
@@ -635,15 +672,20 @@ function fillSettings(values) {
 function readSettings() {
   const out = {};
   for (const input of settingInputs()) {
+    if (ownBudget && CARD_BUDGET.includes(input.dataset.setting)) continue; // the card's, not yours
     out[input.dataset.setting] = input.type === "checkbox" ? input.checked
       : input.type === "number" ? Number(input.value) : input.value;
   }
   return out;
 }
 
-// Looks only matter when Painty can see the canvas.
+// Looks only matter when Painty can see the canvas, and the dialog says so. A benchmark
+// card holds both budgets.
 function syncLooksInput() {
-  settingInput("look_budget").disabled = settingsLocked || !settingInput("vision").checked;
+  const blind = !settingInput("vision").checked;
+  settingInput("shape_budget").disabled = settingsLocked || Boolean(ownBudget);
+  settingInput("look_budget").disabled = settingsLocked || Boolean(ownBudget) || blind;
+  $("looks-note").hidden = !blind;
 }
 
 function lockSettings(locked) {

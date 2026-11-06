@@ -21,6 +21,7 @@ fresh. Only the gallery and the settings outlive a connection.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import logging
 import uuid
 
@@ -99,7 +100,8 @@ class Studio:
         reference: an optional image (a data URL) to work from. With no prompt,
         Painty recreates it; with one, it uses it as the prompt says.
         benchmark: a benchmark card's name. The card is the reference, painted here
-        (exact pixels, not the browser's copy), and it sets the canvas shape.
+        (exact pixels, not the browser's copy), and it sets the canvas shape and the
+        shape and look budgets (fixed, with no top-ups, so runs compare fairly).
         """
         prompt = (prompt or "").strip()[:MAX_PROMPT]
         if not prompt and not reference and not benchmark:
@@ -122,6 +124,9 @@ class Studio:
                 await self._error(str(exc))
                 return
         s = self.store.current
+        if benchmark:  # this drawing only: the saved settings keep your own budgets
+            card = CARDS[benchmark]
+            s = dataclasses.replace(s, shape_budget=card.shape_budget, look_budget=card.look_budget)
         if ref:
             view = await asyncio.to_thread(agent_view, ref, canvas.width, canvas.height, s.grid)
         exemplar = await asyncio.to_thread(exemplar_views, s.grid) if s.exemplar else ()
@@ -149,8 +154,10 @@ class Studio:
                                     image=data_url(exemplar[0]))
         if benchmark:
             card = CARDS[benchmark]
+            looks = f" and {card.look_budget} looks" if s.vision else ", painting blind"
             await self.ctx.activity("agent", f"🎯 Benchmark: {card.title}",
-                                    f"{card.about} {card.shape_count} shapes; score it with "
+                                    f"{card.about} The card has {card.shape_count} shapes. Fixed budget: "
+                                    f"{card.shape_budget} shapes{looks}, no top-ups. Score it with "
                                     "python -m app.benchmark_score once it's saved.")
         if view:
             await self.ctx.activity("agent", "🖼️ The reference image Painty was given",
@@ -163,6 +170,10 @@ class Studio:
         """Top up the budget and carry on the same conversation."""
         if self.state != "paused" or not self.ctx or self.history is None:
             await self._error("There's no paused drawing to continue.")
+            return
+        if self.ctx.benchmark:
+            await self._error("A benchmark has a fixed budget, so it can't keep going. "
+                              "Finish here to save it for scoring.")
             return
         s = self.store.current  # top-up sizes are read live
         looks = s.top_up_looks if self.ctx.settings.vision else 0
@@ -244,6 +255,9 @@ class Studio:
         s = self.store.current
         why = ("The shape budget is used up." if reason == "shapes"
                else "The hidden turn limit was reached.")
+        if self.ctx.benchmark:  # a fixed budget: no top-ups, only finish here
+            await self._set_state("paused", reason=why, top_up=None)
+            return
         await self._set_state("paused", reason=why,
                               top_up={"shapes": s.top_up_shapes,
                                       "looks": s.top_up_looks if self.ctx.settings.vision else 0})
