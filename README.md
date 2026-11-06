@@ -2,17 +2,18 @@
 
 **Can an AI agent learn to paint with a tool it has never seen?**
 
-Painty gives an agent a blank canvas (square, landscape or portrait) and four shapes: line, rectangle, ellipse and triangle. Click **New painting**, pick the canvas shape and type what you want, such as *"a ginger cat sitting in the sun"* or *"a stripy tiger with blue and green stripes"*. The agent paints it one tool call at a time, layering shapes like real paint. With vision on, it can stop and look at its own work, then fix what it doesn't like.
+Painty gives an agent a blank canvas (square, landscape or portrait) and six shapes: line, rectangle, ellipse, triangle, diamond and trail. Click **New painting**, pick the canvas shape and type what you want, such as *"a ginger cat sitting in the sun"* or *"a stripy tiger with blue and green stripes"*. The agent paints it one tool call at a time, layering shapes like real paint. With vision on, it can stop and look at its own work, then fix what it doesn't like.
 
 It's an experiment in agent adaptation. The agent can't fall back on SVG or CSS it memorised in training. It has to learn a new, custom paint system from its instructions and turn what it knows about cats, faces and tigers into coordinates and layers.
 
 ## Key features
 
-- **A custom paint system.** Shapes are drawn by "dragging" from one corner to another, like Microsoft Paint. They can be turned to any angle, filled with flat colour or linear and radial blends, given outlines, and made see-through for shading and highlights.
+- **A custom paint system.** Shapes are drawn by "dragging" from one corner to another, like Microsoft Paint. They can be turned to any angle or skewed, filled with flat colour or linear and radial blends, given outlines, sprayed on as speckle, feathered at the edges, and made see-through for shading and highlights. Lines can be bent into curves and tapered like brush strokes, and a trail walks a stroke leg by leg by compass heading.
+- **An exemplar to learn from.** Before it paints, Painty can be shown two practice sheets of numbered examples, painted by the same renderer and labelled with their boxes and coordinates, each listed with the exact shape text that drew it.
 - **Three canvas shapes.** Square (512 × 512), landscape (768 × 512) or portrait (512 × 768), chosen for each painting.
 - **Reference images.** Add a picture to a new painting. On its own, Painty tries to recreate it; with text, it uses it the way you say ("my dog as a cartoon", "a seascape in these colours"). The image picks the canvas shape for you.
 - **Paint is permanent.** Every shape covers what's beneath it. There's no undo or eraser, so mistakes are fixed by painting over them.
-- **The agent can see its own work.** Each look sends a PNG snapshot to the *same* model doing the painting, with a ruler and grid in its view to help it map what it sees to coordinates.
+- **The agent can see its own work.** Each look sends a PNG snapshot to the *same* model doing the painting, with a ruler and grid in its view to help it map what it sees to coordinates. You choose the grid: a ruler frame round the picture, a grid drawn on the picture (so it stays exactly canvas-sized), or none.
 - **Vision on or off.** Run the same prompt with and without sight and compare the results.
 - **Budgets you control.** Shape and look budgets, plus a cap on shapes per call, set in the New painting dialog alongside the model and vision.
 - **Keep going.** When the budget runs out, the drawing pauses. Give it more and the agent carries on exactly where it stopped.
@@ -61,6 +62,8 @@ These are set on screen and saved between restarts. Changes apply to the next dr
 | Model | `gpt-5.4-mini` | The model that paints. The choices come from `PAINTY_MODELS` |
 | Reasoning effort | Medium | How hard the model thinks before each step. "Model default" leaves it unset |
 | Let Painty see the canvas | On | Gives the agent the `look` tool. Off means it paints blind |
+| Show Painty the exemplar sheet first | On | Sends the two exemplar sheets and their shape text in the first message. See them at `/exemplar.png?sheet=1&grid=frame` and `/exemplar.txt` |
+| Grid on what Painty sees | Ruler frame | How every image Painty sees (its looks, the reference and the exemplar) marks positions: **Ruler frame** (numbered margin round the picture, 60 px bigger than the canvas), **Grid on the image** (lines and small numbers drawn on the picture, exactly canvas-sized) or **None** |
 | Shapes | 60 | Shapes per drawing |
 | Looks | 5 | Looks per drawing |
 | Most shapes in one paint call | 15 | Stops the agent painting everything in one blind batch |
@@ -90,7 +93,7 @@ The design and the reasons behind it are in [`docs/PDD.md`](docs/PDD.md). In sho
 
 - Multi-step scenes: add to a finished painting with a follow-up prompt ("now add people playing volleyball").
 - A "hard mode" with an unfamiliar coordinate system, such as y pointing up.
-- More shapes or paint options, such as free three-point triangles or curves.
+- More shapes or paint options, such as free three-point triangles.
 - Deleting paintings from the gallery in the app.
 - A side-by-side comparison view for vision on and off.
 - Style suggestions when starting a painting.

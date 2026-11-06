@@ -327,7 +327,8 @@ button, input, select, textarea { font: inherit; }
 .gallery-detail .looks img { width: 100%; box-shadow: 0 0 0 1px var(--paper-edge); cursor: zoom-in; }
 .head-actions { display: flex; align-items: center; gap: 6px; }
 .head-actions .back { padding: 5px 12px; }
-.gallery-detail .files { display: flex; gap: 14px; font-size: 14px; }
+.gallery-detail .files { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 14px; }
+.gallery-detail .files a { white-space: nowrap; } /* wrap between links, never inside one */
 .gallery-detail a { color: var(--mat); font-weight: 600; }
 
 /* The stage viewer: a big preview, a caption and a strip of every stage. Stages Painty looked

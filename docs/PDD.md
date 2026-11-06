@@ -1,6 +1,6 @@
 # Painty: project design document
 
-Version 0.4.0, 5 November 2026. Owner: Oliver Carr.
+Version 0.5.0, 6 November 2026. Owner: Oliver Carr.
 
 This records what Painty is for, every design decision made so far and the reasons behind them, so later work (by a person, Claude Code or another agent) builds on them rather than undoing them. `AGENTS.md` covers how to work on the code; this covers why it is the way it is.
 
@@ -43,11 +43,12 @@ Out of scope for now (see section 12): follow-up prompts on the same canvas, raw
 
 ### 4.1 Shapes
 
-Four kinds: `line`, `rectangle`, `ellipse`, `triangle`.
+Six kinds. Five are drag-box shapes: `line`, `rectangle`, `ellipse`, `triangle`, `diamond`. One is walked: `trail` (section 4.8).
 
 - **Drag box.** Like Microsoft Paint: (x1, y1) and (x2, y2) are opposite corners of a box and the shape fills it. Any pair of opposite corners works in any order (top-left to bottom-right, bottom-left to top-right and so on); the box is normalised. Using "a start and an end" rather than "top-left and bottom-right" keeps that freedom.
-- **Lines** go from (x1, y1) to (x2, y2) and keep their direction. They have round ends.
+- **Lines** go from (x1, y1) to (x2, y2) and keep their direction. They have round ends, and can be bent and tapered (section 4.9).
 - **Circles and squares** are an ellipse or rectangle in a square box.
+- **Diamond** has its four corners at the middle of each edge of its box. Added in v0.3 (on the experimental-shapes branch, brought back in v0.5) because an isometric top face is a diamond in a box about 1.73 : 1, and it suits kites, gems and highlights.
 
 ### 4.2 Triangle and rotation
 
@@ -61,6 +62,13 @@ Options considered: a box plus one of four directions (Paint-like, but limited),
 - A turned shape can poke outside its box. The agent has to reason about that, which is part of the adaptation test.
 - Lost: lopsided (scalene) triangles. Overlapping shapes can make up for it. Free three-point triangles are a roadmap idea.
 
+### 4.2.1 Skew
+
+Models asked for isometric pictures had to fake slanted faces (one built a car body from about 50 lines; another made a slanted rectangle from two triangles, and its gradient didn't line up). A free polygon would fix that but is SVG's `points` list under another name.
+
+**Chosen: `skew`, like MS Paint's "Stretch and Skew".** The box's left and right edges stay upright and its top and bottom edges tilt by the skew angle (−70° to 70°; positive drops the right side, so it turns the same way as rotation). It works on every box shape and is applied before rotation, both around the box centre. The fill is defined inside the shape's own transformed frame, so a linear blend skews with the face. An isometric box is a diamond on two rectangles skewed 30° and −30°.
+
+
 ### 4.3 Paint (fill)
 
 Raw CSS or SVG styling was considered and **rejected**. It would hand the familiar system back (the model would reach for memorised tricks such as clip-path and box-shadow), defeating the test, and it could break out of the canvas. Instead the agent gets "a paint set, not the paint factory": a small structured vocabulary.
@@ -69,7 +77,19 @@ Raw CSS or SVG styling was considered and **rejected**. It would hand the famili
 - Colours: hex (`#rgb` or `#rrggbb`). Full freedom of colour was a requirement.
 - Linear angle: the same compass convention as rotation (0 = bottom to top, 90 = left to right). The blend turns with the shape.
 - `opacity`: 0.05 to 1. Below 1, the paint beneath shows through. This is what makes shading, shadows, highlights and glazes possible, which matters for refining detail.
-- `thickness` and `outline`: line thickness for lines (1–100 px, default 3); optional outline for other shapes (0–40 px, default 2 when an outline colour is given).
+- `thickness` and `outline`: line thickness for lines and trails (1–100 px, default 3); optional outline for other shapes (0–40 px, default 2 when an outline colour is given).
+
+### 4.3.1 Texture: spray and soft
+
+Two extras that work on every shape and every fill (texture as a fill *style* was rejected: it would rule out sprayed gradients):
+
+- `spray` (0.05–1, default 1): only that share of the paint lands, as pixel-fine speckle, like MS Paint's spray can. A thick sprayed line is an airbrush stroke; layered sprays build texture (sand, stubble, fur, rust, mist).
+- `soft` (0–30 px, default 0): feathered edges, for glows, shadows, clouds and blends.
+
+Both are a per-shape SVG `<filter>` inside the shape's own fragment, so the one-renderer rule holds. Spray is `feTurbulence` fractal noise, cut at the share asked for and used as a mask. The noise values fall on a bell curve (mean 0.515, spread 0.12, measured through resvg), so the cut comes from that curve, and `spray=0.3` covers about 30%. The noise is seeded with the shape's number, so the browser, the agent's look and the gallery all show the same speckle. The filter region is set in pixels (`userSpaceOnUse`), because a level line's box is 0 px tall and a box-sized filter would hide it. It isn't clipped to the canvas, because a fragment doesn't know which canvas shape it's on (clipping it to 512 would cut off spray on the right of a landscape canvas). Soft blurs first and spray masks after, so a soft sprayed shape thins out towards its edges.
+
+Considered and not built: named pattern fills such as stripes or dots (a `stripes` fill does the thinking for "a stripy tiger"), and a scatter or stamp option (one shape becoming dozens quietly breaks the budget). Rough hand-drawn edges and hatched shading are future ideas.
+
 
 ### 4.4 Layering
 
@@ -85,7 +105,8 @@ There is no undo, erase, clear or move. Paint is paint: the agent can only paint
 - **Painted up to the first bad shape:** the shapes before the first invalid one are painted; it and everything after it are not, and cost no budget. The agent sends the rest again, fixed, and it lands in the planned order. Painting each valid shape on its own was rejected: if the face is skipped but the eyes are painted, resending the face covers the eyes. This replaced all-or-nothing batches, which threw away good shapes and made the agent resend the whole batch.
 - Whole-batch problems (empty, over the per-call limit, more shapes than the budget has left) still paint nothing.
 - Harmless oddities are painted anyway with a note (for example, extra colours on a solid fill).
-- Rules: coordinates in range; at least 2 × 2 px for filled shapes; lines need length (use a small ellipse for a dot); valid hex colours; opacity 0.05–1; thickness limits as above.
+- Rules: coordinates in range (for a trail, its start and the end of every leg, per axis); at least 2 × 2 px for filled shapes; lines need length (use a small ellipse for a dot) and each leg is at least 1 px; a trail has 1–12 legs; valid hex colours; opacity 0.05–1; skew −70 to 70; spray 0.05–1; soft 0–30; bend 0–256; thickness limits as above.
+- Harmless notes also cover extras that do nothing on a kind (rotation and skew on a trail, skew on a line, smooth on a box shape, bend on anything but a line), and every painted trail gets a note saying where it turned and ended (section 4.8).
 
 ### 4.7 The shape notation
 
@@ -104,7 +125,33 @@ ellipse 196 180 316 300 #f2c9a0 outline=#5a3a1a thickness=3
 - **Forgiving about small slips:** letter case, commas, spaces round `=`, `rect`, and several shapes crammed into one string. Never about meaning: no named colours, no missing `#`, no unknown tags.
 - It is still Painty's own system, not SVG: no tags, no attributes, no path commands.
 - Risk: strict JSON schemas guaranteed well-formed shapes; now only the parser and the prompt do. If some models do badly, a JSON mode could come back as a setting for comparison.
+- Walks swap the box for a start point and legs: `trail x y 40@90 30@135 #333 thickness=4` (section 4.8).
 - The parser builds the same internal `Shape`, so validation, rendering and the gallery were unchanged. `shapes.json` keeps each shape's original `text`, so format mistakes can be studied.
+
+### 4.8 Trails
+
+A multi-point line was wanted for bendy lines (tails, branches, smiles), but in SVG it's a point list, which a model can fill from memory.
+
+**Chosen: a walk.** The agent gives a start point, then legs written `distance@heading` on the same compass as rotation and blends (`40@90` goes 40 px right). It never writes a list of points or a path command.
+
+- A trail is painted as a line with round ends and joins. Fill, opacity, spray and soft work as on other shapes. Rotation and skew don't apply; the headings set the direction.
+- At most 12 legs (`MAX_LEGS`), so one shape can't wander forever. A whole trail counts as one shape.
+- `smooth=1` turns the corners into a curve through every corner (Catmull-Rom curves drawn as cubic Béziers by the renderer). It swings out a little between corners rather than cutting them.
+- Risk: drift. Models work out headings in their heads badly, and the errors add up. So the paint result lists where every bend and the end of each trail really landed, in whole pixels, and the prompt says to place anything along a trail from those positions rather than its own sums. In v0.3.1 only the end was reported. A tiger's tail stripes then landed about 15 px beside the tail, because the agent placed absolute-coordinate stripes against bends it had calculated itself; it only fixed them after a look.
+- Gradients size themselves to the box around every corner. Internally, `start` is the start point, `end` is where the last leg ends, and `legs` is kept in `shapes.json`.
+
+**`patch` was tried and removed (v0.3.0 → v0.3.1).** `patch` was the same walk, closed with a straight edge and filled, with `smooth=1` giving rounded blobs: a free polygon in a different notation. With GPT-6.1-Sol it went badly on organic subjects. A Hojakdo tiger that v0.1 painted well from 125 lines, 64 ellipses and 24 triangles came back malformed from 120 trails and 29 patches (73 smoothed), its body, legs and stripes all patches. The legs (`28@349 82@354 85@352 74@350 …`) showed the model planning outlines as points and converting each step to a heading. The notation didn't stop polygon thinking; it only added arithmetic, and the errors added up. Smoothing made outlines land where it hadn't planned. The prompt's suggestion of smooth patches for "a body" pulled it away from ellipses, which always land where they're meant to. Straight 3-leg patches did work for isometric faces, but `diamond` and `skew` cover those. A straight-only patch capped at 4 legs was considered and not chosen.
+
+### 4.9 Bent and tapered lines
+
+A v0.3.2 tiger had clumsy body stripes. They were trails like `trail 274 314 26@99 18@126 20@155` at a fixed thickness: thick hooks lying along the back instead of bands down the flank. Stripes on the tail and legs, painted as plain `line x1 y1 x2 y2`, landed well. The model is good at "from here to there" in canvas coordinates and poor at choosing headings for a short stroke that must land somewhere exact. A fixed-width, round-ended stroke also doesn't look like a stripe, which is a wedge.
+
+**Chosen: two line extras from MS Paint.**
+
+- `bend=20@180` (lines only): like Paint's curve tool. The middle of the line is pulled 20 px towards the heading, and both ends stay put. It reuses the compass and the `distance@heading` form from trails, so it needs no left or right handedness, which is easy to get wrong with y pointing down. It renders as a quadratic Bézier whose control point is twice as far out, so the curve's middle lands exactly on the bend. 0 to 256 px; a negative amount is refused with a hint to turn the heading round.
+- `taper=end` or `taper=both` (lines and trails): a brush stroke. `end` thins from full width at the start to a point at the end, with a round start; `both` is widest in the middle. It renders as a filled outline built from points along the centre line (the curve sampled, the width at each point set by how far along it is), so fills, spray and soft work as on any shape.
+- The prompt now says when to use which: a trail for long wandering strokes (branches, vines, curling tails), a bent line whenever both ends must land in exact places (stripes, eyebrows, smiles, whiskers).
+- A bend of 8 px or more gets a note in the paint result saying where the curve passes a quarter, half and three quarters of the way along. In v0.3.3 a tail was a deeply bent line (`bend=66@90`), and its stripes landed 10–13 px off it: the model knows a bent line's ends and middle, but guessed the rest of the curve. Gentler bends stay within a few pixels of the straight line, so they get no note.
 
 ## 5. Tools
 
@@ -140,9 +187,32 @@ A new painting can come with a reference image: a photo or a picture to recreate
 - **Independent of vision.** With vision off, Painty sees the reference but never its own canvas: copying from a picture without being able to check the work. The model must accept image input either way.
 - **The prompt** gets a "reference image" section (`prompts/reference.md`) only when there is one, so plain drawings are unchanged.
 
-### 5.4 The agent's view: ruler and grid
+### 5.4 The agent's view: ruler, grid and grid modes
 
 Vision models judge *where* things are far better than they read exact numbers. So the agent's snapshot is the painting inside a numbered ruler frame (from 0 to the canvas width or height every 64 px, on all four sides) with faint grey grid lines every 64 px. The ruler and grid are in the agent's view only, never in the painting, the browser canvas or the gallery PNG. The tool result tells the agent they aren't paint.
+
+**Grid modes (v0.5).** Recreations of reference images often came out slightly offset from the original. One suspect is the frame itself: the agent sees a 572 × 572 image of a 512 × 512 canvas. If a model reads positions as pixels of the image, everything lands about 30 px right and down; if it reads them as fractions of the image, the picture shrinks about 10% towards the middle. The ruler numbers are right either way, but nothing forces the model to use them. So the view is a per-drawing setting, `grid`:
+
+| Mode | What the agent sees | Size |
+|---|---|---|
+| `frame` (default, as before) | Numbered ruler round the picture, faint grid lines on it | canvas + 60 px each way |
+| `overlay` | The same grid lines, with small numbers drawn inside the picture along its top and left edges (on a light halo) | exactly the canvas |
+| `none` | The painting as it is | exactly the canvas |
+
+- `overlay` separates the two questions: it keeps the grid's help but removes the size mismatch. Comparing all three on the same reference shows whether the grid helps, or the frame hurts.
+- One mode applies to every image the agent sees in a drawing (looks, the reference and the exemplar), so it compares like with like.
+- The look tool's docstring is fixed for every drawing, so it doesn't describe the grid; the prompt sections (`GRID_NOTES` in `view.py`, filled into the reference, vision and exemplar sections) and each look's result do. Frozen per drawing, so the prompt cache still works.
+
+### 5.5 The exemplar
+
+The experimental shapes (v0.3) were more expressive but placed badly, lines worst of all: the agent painted, looked, and painted over its own slips, again and again. The exemplar teaches the system up front instead.
+
+- **What it is.** Two practice sheets, 768 × 512 each, of numbered examples (box shapes, rotation and skew on one; lines, bends, trails, compass headings and paint on the other). Each example's drag box is a dashed pink outline, and every point it was written with (box corners, line ends, a bent line's middle, a trail's start and corners) is a pink dot labelled with its coordinates. The first user message lists every example's number, caption and exact shape lines.
+- **Why "exemplar".** "Reference" already means the person's own image. The exemplar is Painty's, the same for every drawing.
+- **Built from code, cached.** The examples are notation strings in `app/exemplar.py`, painted by the real `Canvas`, labelled with Pillow, then put in the drawing's grid mode, and cached per mode (`lru_cache`). It costs milliseconds once per process. A saved PNG was considered and rejected: it would quietly go stale the next time a shape's rendering changed. A test checks every example is valid on its sheet, and the text is built from the same lines as the picture, so they can't disagree.
+- **Sent once, first.** Like the reference, it goes in the opening user message, not through a tool: exemplar text and sheets, then the request, then any reference. It stays in the history and is served from the prompt cache after the first call. The instructions get a short exemplar section (`prompts/exemplar.md`) only when it's on.
+- **A toggle, default on**, so runs with and without it can be compared. The gallery saves the sheets as the agent saw them (`exemplar-N.png`), because the exemplar will change while it's being tuned. `/exemplar.png?sheet=1&grid=frame` and `/exemplar.txt` show it for checking by eye.
+- **Cost.** Two more high-detail images in every drawing's first call, cached after that.
 
 ## 6. Budgets and limits
 
@@ -203,7 +273,7 @@ idle --paint--> painting --finish--------> finished (saved)
 - **Meters** for shapes (bar) and looks (dots).
 - **Activity feed** (permanent right column): every batch with its note and shape counts, every look with a thumbnail of exactly what the agent saw (click to enlarge), errors, and the finish.
 - **Paused card** with Keep going and Finish here. **Finished card** with title, note, shape and token counts, and a link to the gallery.
-- **Settings where you use them.** The New painting dialog holds the model, reasoning effort, vision and the drawing's budgets, so a comparison run is set up in the same place it's asked for. The looks field is greyed out with vision off. The settings drawer keeps only the keep going top-ups, which matter mid-drawing. All of them are still one set of saved settings: every change is saved straight away and is remembered for the next painting, and the dialog sends its values again just before `paint`, so a drawing starts with exactly what was shown.
+- **Settings where you use them.** The New painting dialog holds the model, reasoning effort, vision, the exemplar toggle, the grid mode and the drawing's budgets, so a comparison run is set up in the same place it's asked for. The looks field is greyed out with vision off. The settings drawer keeps only the keep going top-ups, which matter mid-drawing. All of them are still one set of saved settings: every change is saved straight away and is remembered for the next painting, and the dialog sends its values again just before `paint`, so a drawing starts with exactly what was shown.
 - **New painting dialog.** The top bar has a New painting button (Stop while painting), then a short status line saying what Painty is doing (thinking, painting, looking) or that the connection dropped; the feed has the detail. The button opens a dialog with the prompt (a textarea: Enter paints, Shift+Enter starts a new line), an optional reference image (choose, drop or paste; shown cropped to the canvas) and the canvas shape. It replaced the single-line prompt box in the top bar, which had no room for more, and leaves space for style suggestions. The canvas choice is kept until the page reloads; the prompt and image are cleared once a painting starts.
 - **The reference on screen.** Under the canvas, next to the prompt, a small copy of the reference (click to enlarge). In the gallery, its tile shows the reference small in the corner, and the stage viewer can swap the preview to the reference for comparison.
 - **Canvas shapes on screen.** The canvas is the biggest of its shape that fits the column. Gallery tiles stay square, with landscape and portrait paintings shown whole inside them.
@@ -224,12 +294,16 @@ Each painting is a folder under `DATA_DIR/gallery` (in the container, the `paint
 - `shapes.json`: every shape in paint order as parsed data, with its original `text` ("Shapes (JSON)")
 - `looks/look-N.png`: exactly what the agent saw, ruler and grid included
 - `reference.png` and `reference-view.png`: the reference image, if one was given, cropped to the canvas, and as the agent saw it (ruler and grid included)
+- `exemplar-N.png`: the exemplar sheets as the agent saw them, if it was shown them
 - `stages/stage-N.png`: the canvas after each paint call that painted something (canvas size, no grid). Rendered at save time from the first shapes of the canvas, so painting gets no slower. A look at a blank canvas adds a `stage-0.png`
-- `meta.json`: prompt, title, note, ending, `canvas` (shape, width and height; missing on older paintings, which are 512 × 512 square), `reference` (true when a reference image was given; the prompt may then be empty, meaning recreate it), `favourite` (set from the gallery; missing means no), settings, budgets used, top-ups, `shape_format` (`notation`; missing on paintings from before it, which have no `shapes.txt`), tokens (input with the cached share, output with the reasoning share), time, version, `stages` (each with its first and last shape, note and the looks taken there) and `looks` (each look's focus and how many shapes it saw). Paintings from before stages have neither
+- `meta.json`: prompt, title, note, ending, `canvas` (shape, width and height; missing on older paintings, which are 512 × 512 square), `exemplar_sheets` (the exemplar files saved with it; empty when it wasn't shown, missing on older paintings), `reference` (true when a reference image was given; the prompt may then be empty, meaning recreate it), `favourite` (set from the gallery; missing means no), settings, budgets used, top-ups, `shape_format` (`notation`; missing on paintings from before it, which have no `shapes.txt`), tokens (input with the cached share, output with the reasoning share), time, version, `stages` (each with its first and last shape, note and the looks taken there) and `looks` (each look's focus and how many shapes it saw). Paintings from before stages have neither
 
 Endings: `finished` (the agent called finish), `ended` (it stopped without calling finish, so its last words become the note) and `saved` (you saved it by hand).
 
 ## 11. Experiments to try
+
+- The same reference with grid `frame`, `overlay` and `none`: does the offset in recreations follow the frame?
+- The exemplar on and off, especially for subjects that need lines, bends and trails ("a tiger with a curling striped tail", "an isometric house with a winding path"). Does it cut the paint-then-repaint loop?
 
 - Same prompt, vision on and off. Does sight make paintings more recognisable, or just more expensive?
 - Differences in models and reasoning levels.
@@ -290,3 +364,6 @@ Endings: `finished` (the agent called finish), `ended` (it stopped without calli
 | 5 Nov 2026 | Model, reasoning effort, vision and budgets moved from the settings drawer into the New painting dialog; the drawer keeps the keep going top-ups |
 | 5 Nov 2026 | Reference images: optional, with or without text; picks and is cropped to the canvas shape; sent once in the first message inside the ruler and grid; saved in the gallery |
 | 5 Nov 2026 | Gallery: a colour per model, filters by model and favourites; favourites saved in each painting's meta.json |
+| 6 Nov 2026 | Experimental shapes brought back from the experimental-shapes branch, ported by hand onto main: `diamond`, `skew`, `trail` (with `smooth` and reported corners), `bend`, `taper`, `spray`, `soft`. Close looks left out: every look shows the whole canvas |
+| 6 Nov 2026 | The exemplar: two practice sheets built from code by the real renderer, labelled, sent once at the start of the first message; a toggle, default on |
+| 6 Nov 2026 | Grid modes (`frame`, `overlay`, `none`) for every image the agent sees, to test whether the ruler frame's size mismatch causes offsets |

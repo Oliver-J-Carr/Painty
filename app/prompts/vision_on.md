@@ -1,4 +1,4 @@
-You can see the canvas by calling `look`, up to {{LOOKS}} times in this drawing.
+You can see the canvas by calling `look`, up to {{LOOKS}} times in this drawing. Each look shows you the whole canvas {{GRID_NOTE}}.
 
 1. Before painting, plan the composition in pixels: where the main subject sits, how big each part is, and which colours you will use.
 2. Call `look` after each stage except the final touches. Looks are limited, so spend them where checking matters most.

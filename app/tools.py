@@ -18,12 +18,18 @@ from agents import RunContextWrapper, ToolOutputImage, ToolOutputText, function_
 
 from .canvas import check_batch, split_batch
 from .context import Look, PaintyContext, Stage
-from .view import GRID_STEP, agent_view_png, data_url
+from .view import DEFAULT_GRID, GRID_STEP, agent_view_png, data_url
 
 Ctx = RunContextWrapper[PaintyContext]
 
 MAX_TITLE = 80
 MAX_NOTE = 500
+# What a look's result says about the view, for each grid mode.
+GRID_RESULT = {
+    "frame": f"Ruler and grid lines (every {GRID_STEP} px) are in your view only.",
+    "overlay": f"Grid lines (every {GRID_STEP} px) and their numbers are in your view only.",
+    "none": "No grid: one pixel of the image is one pixel of the canvas.",
+}
 
 
 def budget_left(c: PaintyContext) -> str:
@@ -39,8 +45,10 @@ async def paint(ctx: Ctx, shapes: list[str], note: str) -> str:
     """Paint a batch of shapes onto the canvas, in the order given.
 
     Each shape is one string: kind x1 y1 x2 y2 fill, then any extras, such as
-    "ellipse 196 180 316 300 #f2c9a0 outline=#5a3a1a thickness=3". Your
-    instructions explain the fills and extras.
+    "ellipse 196 180 316 300 #f2c9a0 outline=#5a3a1a thickness=3". A trail is
+    walked instead: trail x y, then legs written distance@heading, then the
+    fill and extras, such as "trail 150 300 60@100 50@80 #5a3a1a smooth=1".
+    Your instructions explain the shapes, fills and extras.
 
     Paint is permanent. Each shape is laid on top of everything painted before it,
     so where shapes overlap the later one covers the earlier one (partly, if its
@@ -106,8 +114,8 @@ async def paint(ctx: Ctx, shapes: list[str], note: str) -> str:
 async def look(ctx: Ctx, focus: str) -> list[ToolOutputText | ToolOutputImage]:
     """Look at the canvas as it is right now.
 
-    Your view has a numbered ruler around the edge and faint grey grid lines every
-    64 px, to help you match what you see to coordinates. The ruler and grid are
+    You see the whole canvas. Your instructions say whether your view has a grid
+    to help you match what you see to coordinates. Any grid, ruler or numbers are
     only in your view: they are not paint and are not part of the picture.
 
     Each look uses one look from your budget, so look after a meaningful stage
@@ -122,15 +130,16 @@ async def look(ctx: Ctx, focus: str) -> list[ToolOutputText | ToolOutputImage]:
         return [ToolOutputText(text="Error: no looks left. Carry on from what you already know, "
                                     "or call finish if the painting is done.")]
 
-    png = agent_view_png(c.canvas.to_svg(), c.canvas.width, c.canvas.height)
+    grid = c.settings.grid
+    png = agent_view_png(c.canvas.to_svg(), c.canvas.width, c.canvas.height, grid)
     b.looks_used += 1
     c.looks.append(Look(png, (focus or "").strip()[:MAX_NOTE], len(c.canvas)))
     url = data_url(png)
     await c.emit({"type": "look", "key": ctx.tool_call_id, "n": b.looks_used,
                   "focus": focus, "image": url})
     await c.send_budget()
-    text = (f"Look {b.looks_used}: the canvas after {len(c.canvas)} shapes. "
-            f"Ruler and grid lines (every {GRID_STEP} px) are in your view only. {budget_left(c)}")
+    text = f"Look {b.looks_used}: the canvas after {len(c.canvas)} shapes. " + GRID_RESULT.get(
+        grid, GRID_RESULT[DEFAULT_GRID]) + f" {budget_left(c)}"
     return [ToolOutputText(text=text), ToolOutputImage(image_url=url, detail="high")]
 
 

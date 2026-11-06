@@ -392,7 +392,7 @@ def test_reference_alone_means_recreate_it(tmp_path):
         [paint([rect(0, 0, 768, 512, "#c87828")], "c1")],
         [finish("c2", "Orange", "A copy of the reference.")],
     ]
-    studio, model, events = make_studio(tmp_path, steps)
+    studio, model, events = make_studio(tmp_path, steps, exemplar=False)
 
     async def go():
         await studio.start("", "landscape", _reference_url())
@@ -456,7 +456,8 @@ def test_unreadable_reference_starts_nothing(tmp_path):
 
 
 def test_no_reference_section_without_a_reference(tmp_path):
-    studio, model, events = make_studio(tmp_path, [[paint([rect(0, 0, 10, 10)], "c1")], [finish("c2")]])
+    studio, model, events = make_studio(tmp_path, [[paint([rect(0, 0, 10, 10)], "c1")], [finish("c2")]],
+                                        exemplar=False)
 
     async def go():
         await studio.start("a dot")
@@ -617,3 +618,111 @@ def test_settings_locked_while_painting(tmp_path):
 
     assert studio.store.current.shape_budget != 7
     assert any(e["type"] == "error" and "locked" in e["text"] for e in events)
+
+
+# ------------------------------------------------- new shapes, exemplar, grid
+def test_new_kinds_and_extras_paint_and_save(tmp_path):
+    shapes = ["diamond 60 60 233 160 #eeeeee", "rectangle 60 135 146 275 #c03030 skew=30",
+              "trail 280 80 60@90 40@135 #1d3557 thickness=6 smooth=1",
+              "ellipse 300 260 400 330 #6b8e23 spray=0.5",
+              "line 420 260 480 300 #c0392b soft=4 bend=10@0 taper=end"]
+    steps = [[paint(shapes, "c1")], [finish("c2")]]
+    studio, model, events = make_studio(tmp_path, steps)
+
+    async def go():
+        await studio.start("an isometric box")
+        await _wait(studio)
+    run(go)
+
+    assert len(studio.ctx.canvas) == 5
+    running = next(e for e in types(events, "activity") if e.get("key") == "c1" and e["status"] == "running")
+    assert running["detail"] == "1 diamond, 1 rectangle, 1 trail, 1 ellipse, 1 line"
+    # The painter hears where each walk ended.
+    outputs = [i for i in model.calls[1].input if isinstance(i, dict) and i.get("type") == "function_call_output"]
+    result = next(o for o in outputs if o["call_id"] == "c1")["output"]
+    assert "shape 3 (trail): turns at (340, 80), then ends at (368, 108)" in result
+    folder = tmp_path / "gallery" / types(events, "status")[-1]["saved_id"]
+    log = json.loads((folder / "shapes.json").read_text())
+    assert log[1]["skew"] == 30 and log[2]["smooth"] is True and log[3]["spray"] == 0.5
+    assert [leg["heading"] for leg in log[2]["legs"]] == [90, 135]
+    assert log[4]["bend"] == {"distance": 10, "heading": 0} and log[4]["taper"] == "end"
+
+
+def test_exemplar_comes_first_in_the_opening_message_and_is_saved(tmp_path):
+    steps = [[paint([rect(0, 0, 10, 10)], "c1")], [finish("c2")]]
+    studio, model, events = make_studio(tmp_path, steps)  # the exemplar is on by default
+
+    async def go():
+        await studio.start("a dot")
+        await _wait(studio)
+    run(go)
+
+    content = model.calls[0].input[0]["content"]
+    assert content[0]["type"] == "input_text" and content[0]["text"].startswith("Exemplar:")
+    assert [p["type"] for p in content[1:]] == ["input_image", "input_image", "input_text"]
+    assert content[-1]["text"] == "Paint this: a dot"
+    # Sent once: still two images on the next call, not four.
+    assert len(_images_in(model.calls[1].input)) == 2
+    assert "# The exemplar sheets" in model.calls[0].system_instructions
+    assert any(e["text"].startswith("📐") for e in types(events, "activity"))
+    folder = tmp_path / "gallery" / studio.saved_id
+    meta = json.loads((folder / "meta.json").read_text())
+    assert meta["exemplar_sheets"] == ["exemplar-1.png", "exemplar-2.png"]
+    assert meta["settings"]["exemplar"] is True and meta["settings"]["grid"] == "frame"
+    assert (folder / "exemplar-2.png").exists()
+
+
+def test_exemplar_off_sends_none(tmp_path):
+    steps = [[paint([rect(0, 0, 10, 10)], "c1")], [finish("c2")]]
+    studio, model, events = make_studio(tmp_path, steps, exemplar=False)
+
+    async def go():
+        await studio.start("a dot")
+        await _wait(studio)
+    run(go)
+
+    assert model.calls[0].input[0]["content"] == "Paint this: a dot"
+    assert "exemplar" not in model.calls[0].system_instructions.lower()
+    meta = json.loads((tmp_path / "gallery" / studio.saved_id / "meta.json").read_text())
+    assert meta["exemplar_sheets"] == []
+
+
+def _look_size(model, call):
+    """The size of the image the look in an earlier step returned."""
+    for item in model.calls[call].input:
+        if isinstance(item, dict) and item.get("type") == "function_call_output" \
+                and isinstance(item.get("output"), list):
+            for part in item["output"]:
+                if part.get("type") == "input_image":
+                    raw = base64.b64decode(part["image_url"].split(",", 1)[1])
+                    return Image.open(io.BytesIO(raw)).size
+    return None
+
+
+def test_grid_mode_sets_what_every_view_looks_like(tmp_path):
+    for grid, size, note in (("frame", (828, 572), "ruler frame"),
+                             ("overlay", (768, 512), "small numbers along the top and left"),
+                             ("none", (768, 512), "with no grid or ruler")):
+        steps = [[look("c1")], [finish("c2")]]
+        studio, model, _ = make_studio(tmp_path / grid, steps, grid=grid)
+
+        async def go():
+            await studio.start("", "landscape", _reference_url())
+            await _wait(studio)
+        run(go)
+
+        assert _look_size(model, 1) == size, grid
+        images = _images_in(model.calls[0].input)  # two exemplar sheets, then the reference
+        sizes = [Image.open(io.BytesIO(base64.b64decode(i["image_url"].split(",", 1)[1]))).size
+                 for i in images]
+        assert sizes == [size] * 3, grid
+        instructions = model.calls[0].system_instructions
+        assert note in instructions, grid
+        assert instructions.count(note) == 3, grid  # the reference, the looks and the exemplar
+
+
+def test_unknown_grid_mode_keeps_the_current_one(tmp_path):
+    studio, _, _ = make_studio(tmp_path, [], grid="overlay")
+    studio.store.update({"grid": "hexagons", "exemplar": 0})
+    assert studio.store.current.grid == "overlay" and studio.store.current.exemplar is False
+    assert studio.hello()["options"]["grids"] == ["frame", "overlay", "none"]

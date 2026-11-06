@@ -16,6 +16,8 @@ import logging
 from dataclasses import asdict, dataclass, fields, replace
 from pathlib import Path
 
+from .view import DEFAULT_GRID, GRID_MODES
+
 log = logging.getLogger("painty")
 
 REASONING_EFFORTS = ("", "low", "medium", "high")  # "" = the model's default
@@ -38,6 +40,8 @@ class StudioSettings:
     vision: bool = True             # eyes on: the agent gets the look tool
     model: str = ""                 # blank = first of PAINTY_MODELS
     reasoning_effort: str = "medium"
+    grid: str = DEFAULT_GRID        # how the agent's view marks positions: frame, overlay or none
+    exemplar: bool = True           # show the agent the exemplar sheet in its first message
     top_up_shapes: int = 20         # added by "Keep going"
     top_up_looks: int = 2
 
@@ -60,13 +64,16 @@ def clean(raw: dict, models: tuple[str, ...], base: StudioSettings | None = None
                 updates[key] = max(lo, min(hi, int(value)))
             except (TypeError, ValueError):
                 continue
-        elif key == "vision":
+        elif key in ("vision", "exemplar"):
             updates[key] = bool(value)
         elif key == "model":
             if value in models:
                 updates[key] = value
         elif key == "reasoning_effort":
             if value in REASONING_EFFORTS:
+                updates[key] = value
+        elif key == "grid":
+            if value in GRID_MODES:
                 updates[key] = value
     result = replace(current, **updates)
     if result.model not in models:
@@ -104,4 +111,5 @@ class SettingsStore:
     def options(self) -> dict:
         """What the settings panel needs to build its controls."""
         return {"models": list(self.models), "reasoning_efforts": list(REASONING_EFFORTS),
+                "grids": list(GRID_MODES),
                 "limits": {k: list(v) for k, v in LIMITS.items()}}

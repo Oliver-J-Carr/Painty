@@ -36,11 +36,13 @@ from .hooks import ActivityHooks
 from .painter import PAUSED, build_painter_agent
 from .settings_store import SettingsStore
 from .tools import budget_left
-from .view import data_url, framed_png, reference_png
+from .exemplar import exemplar_text, exemplar_views
+from .view import agent_view, data_url, reference_png
 
 log = logging.getLogger("painty")
 
 MAX_PROMPT = 500
+GRID_WORDS = {"frame": "in the ruler frame", "overlay": "with the grid drawn on it", "none": "with no grid"}
 # Spare model calls on top of the budget, for invalid batches and thinking.
 SPARE_TURNS = 10
 
@@ -112,11 +114,12 @@ class Studio:
             except ValueError as exc:
                 await self._error(str(exc))
                 return
-            view = await asyncio.to_thread(framed_png, ref, canvas.width, canvas.height)
-
         s = self.store.current
+        if ref:
+            view = await asyncio.to_thread(agent_view, ref, canvas.width, canvas.height, s.grid)
+        exemplar = await asyncio.to_thread(exemplar_views, s.grid) if s.exemplar else ()
         self.ctx = PaintyContext(send=self.send, settings=s, prompt=prompt, canvas=canvas,
-                                 reference=ref, reference_view=view,
+                                 reference=ref, reference_view=view, exemplar=exemplar,
                                  budget=Budget(s.shape_budget, s.look_budget if s.vision else 0))
         self.drawing_id = f"painty_{uuid.uuid4().hex[:12]}"
         self.agent = build_painter_agent(s, self.model, cache_key=self.drawing_id)
@@ -133,11 +136,16 @@ class Studio:
                                 f"{s.model}, vision {'on' if s.vision else 'off'}, "
                                 f"{canvas.shape} {canvas.width} × {canvas.height}"
                                 + (", with a reference image" if prompt and ref else ""))
+        if exemplar:
+            await self.ctx.activity("agent", "📐 The exemplar sheets Painty was shown",
+                                    f"{len(exemplar)} sheets of numbered examples, before your prompt",
+                                    image=data_url(exemplar[0]))
         if view:
             await self.ctx.activity("agent", "🖼️ The reference image Painty was given",
                                     f"Cropped and scaled to the canvas ({canvas.width} × {canvas.height}), "
-                                    "inside Painty's ruler and grid", image=data_url(view))
-        self._launch(_first_message(prompt, view), label="start")
+                                    f"as Painty sees it ({GRID_WORDS.get(s.grid, s.grid)})",
+                                    image=data_url(view))
+        self._launch(_first_message(prompt, view, exemplar), label="start")
 
     async def keep_going(self) -> None:
         """Top up the budget and carry on the same conversation."""
@@ -192,7 +200,9 @@ class Studio:
                        metadata={"app": "painty", "version": __version__, "segment": label,
                                  "model": ctx.settings.model, "canvas": ctx.canvas.shape,
                                  "reference": str(ctx.reference is not None).lower(),
-                                 "vision": str(ctx.settings.vision).lower()}):
+                                 "vision": str(ctx.settings.vision).lower(),
+                                 "grid": ctx.settings.grid,
+                                 "exemplar": str(ctx.settings.exemplar).lower()}):
                 result = await Runner.run(self.agent, run_input, context=ctx,
                                           hooks=self.hooks, max_turns=_turn_limit(ctx.budget))
             self._count_tokens(result.context_wrapper.usage)
@@ -233,7 +243,7 @@ class Studio:
         c = self.ctx
         req = SaveRequest(
             canvas=c.canvas, prompt=c.prompt, reference=c.reference,
-            reference_view=c.reference_view, title=title, note=note, ending=ending,
+            reference_view=c.reference_view, exemplar=c.exemplar, title=title, note=note, ending=ending,
             settings=settings_dict(c.settings), shapes_budget=c.budget.shapes_total,
             looks_budget=c.budget.looks_total, looks=list(c.looks), stages=list(c.stages),
             top_ups=c.budget.top_ups,
@@ -275,18 +285,26 @@ class Studio:
             pass
 
 
-def _first_message(prompt: str, reference_view: bytes | None):
-    """The person's opening message. A reference image goes in it once, inside
-    the ruler frame: it stays in the history, so every later call (and keep
-    going) still has it, served from the prompt cache after the first."""
-    if reference_view is None:
+def _first_message(prompt: str, reference_view: bytes | None, exemplar: tuple[bytes, ...] = ()):
+    """The person's opening message. The exemplar sheets and a reference image go
+    in it once, in the drawing's grid mode: they stay in the history, so every
+    later call (and keep going) still has them, served from the prompt cache
+    after the first. The exemplar comes first, so the request is read after it."""
+    if reference_view is None and not exemplar:
         return f"Paint this: {prompt}"
-    text = (f"Paint this: {prompt}\n\nHere is the reference image." if prompt
-            else "Recreate this reference image as a painting.")
-    return [{"role": "user", "content": [
-        {"type": "input_text", "text": text},
-        {"type": "input_image", "image_url": data_url(reference_view), "detail": "high"},
-    ]}]
+    content: list[dict] = []
+    if exemplar:
+        content.append({"type": "input_text", "text": exemplar_text()})
+        content += [{"type": "input_image", "image_url": data_url(png), "detail": "high"}
+                    for png in exemplar]
+    if reference_view is None:
+        content.append({"type": "input_text", "text": f"Paint this: {prompt}"})
+    else:
+        text = (f"Paint this: {prompt}\n\nHere is the reference image." if prompt
+                else "Recreate this reference image as a painting.")
+        content += [{"type": "input_text", "text": text},
+                    {"type": "input_image", "image_url": data_url(reference_view), "detail": "high"}]
+    return [{"role": "user", "content": content}]
 
 
 def _history_from(exc: MaxTurnsExceeded) -> list | None:

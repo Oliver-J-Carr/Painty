@@ -8,17 +8,25 @@ from agents import Agent, FunctionToolResult, ModelSettings, RunContextWrapper, 
 from openai.types.shared import Reasoning
 
 from .context import PaintyContext
-from .prompts import PAINTER_PROMPT, REFERENCE, VISION_OFF, VISION_ON, fill
+from .exemplar import SHEET, SHEETS
+from .prompts import EXEMPLAR, PAINTER_PROMPT, REFERENCE, VISION_OFF, VISION_ON, fill
 from .settings_store import StudioSettings
 from .tools import tools_for
+from .view import DEFAULT_GRID, GRID_NOTES
 
 PAUSED = "paused: shape budget used up"
 
 # The reference section's last line depends on whether Painty can see its canvas.
 REFERENCE_CHECK_SEEN = ("When you look, compare your canvas with the reference: what is in the wrong place, "
                         "the wrong size or the wrong colour? Fix what matters most by painting over it.")
-REFERENCE_CHECK_BLIND = ("You can see the reference but not your canvas, so measure carefully against the "
-                         "reference's grid and keep track of where every shape went.")
+REFERENCE_CHECK_BLIND = ("You can see the reference but not your canvas, so measure carefully in the "
+                         "reference and keep track of where every shape went.")
+# How to read positions off the reference, for each grid mode.
+READ_POSITIONS = {
+    "frame": "Read positions straight off the ruler and grid.",
+    "overlay": "Read positions straight off the grid lines and their numbers.",
+    "none": "Measure positions in the image's own pixels, from its top-left corner.",
+}
 
 SHAPE_WORDS = {"square": "square", "landscape": "landscape (wider than tall)",
                "portrait": "portrait (taller than wide)"}
@@ -34,16 +42,22 @@ def _instructions(ctx: RunContextWrapper[PaintyContext], agent: Agent) -> str:
     c = ctx.context
     b = c.budget
     w, h = c.canvas.width, c.canvas.height
-    vision = fill(VISION_ON, LOOKS=b.looks_total) if c.settings.vision else VISION_OFF
+    grid = c.settings.grid if c.settings.grid in GRID_NOTES else DEFAULT_GRID
+    note = GRID_NOTES[grid]
+    vision = fill(VISION_ON, LOOKS=b.looks_total, GRID_NOTE=note) if c.settings.vision else VISION_OFF
     reference = ""
     if c.reference:
         check = REFERENCE_CHECK_SEEN if c.settings.vision else REFERENCE_CHECK_BLIND
         reference = fill(REFERENCE, WIDTH=w, HEIGHT=h, SHAPES=b.shapes_total,
-                         REFERENCE_CHECK=check)
+                         REFERENCE_CHECK=check, GRID_NOTE=note, READ_POSITIONS=READ_POSITIONS[grid])
+    exemplar = ""
+    if c.settings.exemplar:
+        exemplar = fill(EXEMPLAR, SHEETS=len(SHEETS), SHEET_WIDTH=SHEET[0], SHEET_HEIGHT=SHEET[1],
+                        GRID_NOTE=note.replace("canvas", "sheet"))
     text = fill(PAINTER_PROMPT, SHAPE_WORD=SHAPE_WORDS[c.canvas.shape], WIDTH=w, HEIGHT=h,
                 CX=w // 2, CY=h // 2, SHAPES=b.shapes_total,
                 MAX_PER_CALL=c.settings.max_shapes_per_call, VISION_SECTION=vision,
-                REFERENCE_SECTION=reference)
+                REFERENCE_SECTION=reference, EXEMPLAR_SECTION=exemplar)
     return re.sub(r"\n{3,}", "\n\n", text)  # no gap where an optional section is left out
 
 

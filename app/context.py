@@ -71,7 +71,8 @@ class PaintyContext:
     settings: StudioSettings           # frozen copy taken when the drawing started
     prompt: str = ""
     reference: bytes | None = None       # the reference image as a clean PNG, canvas-sized
-    reference_view: bytes | None = None  # the same inside the ruler frame: what the agent saw
+    reference_view: bytes | None = None  # the same in the drawing's grid mode: what the agent saw
+    exemplar: tuple[bytes, ...] = ()     # the exemplar sheets as the agent saw them, if shown
     canvas: Canvas = field(default_factory=Canvas)
     budget: Budget = field(default_factory=lambda: Budget(0, 0))
     looks: list[Look] = field(default_factory=list)    # what the agent saw, in order

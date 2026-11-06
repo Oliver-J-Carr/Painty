@@ -456,12 +456,15 @@ const form = $("settings-form");
 const settingInputs = () => document.querySelectorAll("[data-setting]");
 const settingInput = (name) => document.querySelector(`[data-setting="${name}"]`);
 let settingsLocked = false;
+// The grid modes, as named in the New painting dialog and the gallery.
+const GRID_NAMES = { frame: "Ruler frame", overlay: "Grid on the image", none: "None" };
 
 function setupSettings(options, values) {
   const model = $("set-model");
   model.replaceChildren(...options.models.map((m) => new Option(m, m)));
   const effort = $("set-effort");
   effort.replaceChildren(...options.reasoning_efforts.map((v) => new Option(v ? v[0].toUpperCase() + v.slice(1) : "Model default", v)));
+  $("set-grid").replaceChildren(...options.grids.map((v) => new Option(GRID_NAMES[v] || v, v)));
   for (const [name, [lo, hi]] of Object.entries(options.limits)) {
     const input = settingInput(name);
     if (input) { input.min = lo; input.max = hi; }
@@ -900,6 +903,8 @@ function showDetail(m) {
     ["Canvas", `${c.shape[0].toUpperCase()}${c.shape.slice(1)}, ${c.width} × ${c.height}`],
     ["Model", [modelPill(s.model), ` (effort: ${s.reasoning_effort || "default"})`]],
     ["Vision", s.vision ? "On" : "Off"],
+    ["Grid", GRID_NAMES[s.grid || "frame"] || s.grid], // older paintings had the ruler frame
+    ["Exemplar", s.exemplar ? "Shown" : "Not shown"],
     ["Shapes", `${m.shapes_used} of ${m.shapes_budget}`],
     ["Looks", `${m.looks_used} of ${m.looks_budget}`],
     ["Top-ups", String(m.top_ups)],
@@ -920,7 +925,8 @@ function showDetail(m) {
   const files = el("p", "files");
   const fileLinks = [["PNG", "painting.png"], ["SVG", "painting.svg"],
     ...(m.shape_format === "notation" ? [["Shapes", "shapes.txt"]] : []),
-    ...(m.reference ? [["Reference", "reference.png"], ["Reference as Painty saw it", "reference-view.png"]] : []),
+    ...(m.reference ? [["Reference", "reference-view.png"]] : []), // as Painty saw it, grid and all
+    ...(m.exemplar_sheets || []).map((file, i) => [`Exemplar ${i + 1}`, file]),
     ["Shapes (JSON)", "shapes.json"], ["Details", "meta.json"]];
   for (const [label, file] of fileLinks) {
     const a = el("a", "", label);

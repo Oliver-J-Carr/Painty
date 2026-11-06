@@ -11,15 +11,17 @@ import logging
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import __version__
 from .config import settings
+from .exemplar import SHEETS, exemplar_text, exemplar_views
 from .gallery import Gallery
 from .settings_store import SettingsStore
 from .studio import Studio
+from .view import GRID_MODES
 
 log = logging.getLogger("painty")
 STATIC = Path(__file__).parent / "static"
@@ -53,6 +55,20 @@ async def favicon() -> FileResponse:
 @app.get("/healthz")
 async def healthz() -> dict:
     return {"ok": True, "version": __version__}
+
+
+@app.get("/exemplar.png")
+async def exemplar_png(sheet: int = 1, grid: str = "frame") -> Response:
+    """An exemplar sheet exactly as the agent sees it, for checking it by eye."""
+    if grid not in GRID_MODES or not 1 <= sheet <= len(SHEETS):
+        raise HTTPException(404, f"Use sheet 1 to {len(SHEETS)} and grid {', '.join(GRID_MODES)}.")
+    return Response(exemplar_views(grid)[sheet - 1], media_type="image/png")
+
+
+@app.get("/exemplar.txt")
+async def exemplar_txt() -> Response:
+    """The text sent with the exemplar sheets."""
+    return Response(exemplar_text(), media_type="text/plain; charset=utf-8")
 
 
 @app.get("/api/gallery")
