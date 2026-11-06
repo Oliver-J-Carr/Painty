@@ -80,6 +80,9 @@
           </div>
           <p class="painting-note" id="finished-note"></p>
           <p class="outcome-meta" id="finished-meta"></p>
+          <div class="outcome-actions outcome-again">
+            <button type="button" class="ghost-dark" id="paint-again" title="Open New painting with this painting's prompt, image and settings">Paint again</button>
+          </div>
         </div>
 
         <div class="outcome outcome-row" id="halted" hidden>
@@ -106,6 +109,7 @@
         <h2 id="new-title">New painting</h2>
         <button type="button" class="close" id="close-new" aria-label="Close">×</button>
       </div>
+      <p class="rerun-note" id="rerun-note" hidden></p>
       <label for="prompt" class="field-label">What should Painty paint?</label>
       <textarea id="prompt" name="prompt" maxlength="500" rows="4"
                 placeholder="Try: a ginger cat sitting in the sun"></textarea>

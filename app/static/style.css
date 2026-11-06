@@ -139,6 +139,7 @@ button, input, select, textarea { font: inherit; }
 .outcome-actions { display: flex; gap: 10px; flex-wrap: wrap; }
 .outcome-meta { margin: 6px 0 0; color: var(--graphite-soft); font-size: 13px; }
 .outcome .ghost-dark { padding: 6px 12px; }
+.outcome-again { margin-top: 10px; }
 /* Painty's own words get the casual cut of the typeface. */
 .painting-title { margin: 0; font-size: 22px; font-weight: 700; font-variation-settings: "CASL" 1; flex: 1 1 auto; }
 .painting-note { margin: 4px 0 0; font-variation-settings: "CASL" 1; max-height: 6em; overflow-y: auto; }
@@ -158,6 +159,8 @@ button, input, select, textarea { font: inherit; }
   border-radius: 4px; border: 1px solid #b9bcb2; background: #fff; color: var(--graphite);
 }
 .field-help { margin: 4px 0 0; color: var(--graphite-soft); font-size: 13px; }
+/* Shown when the dialog was filled in from an earlier painting by Paint again. */
+.rerun-note { margin: 0 0 12px; padding: 8px 12px; border-radius: var(--radius); background: rgba(35, 40, 42, 0.06); font-size: 14px; }
 .canvas-choice { border: 0; margin: 4px 0 0; padding: 0; display: flex; gap: 10px; flex-wrap: wrap; }
 .canvas-choice label {
   flex: 1 1 120px; display: grid; justify-items: center; gap: 4px; padding: 12px 8px 10px;
@@ -329,6 +332,7 @@ button, input, select, textarea { font: inherit; }
 .head-actions .back { padding: 5px 12px; }
 .gallery-detail .files { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 14px; }
 .gallery-detail .files a { white-space: nowrap; } /* wrap between links, never inside one */
+.gallery-detail .again { padding: 6px 12px; margin-bottom: 12px; }
 .gallery-detail a { color: var(--mat); font-weight: 600; }
 
 /* The stage viewer: a big preview, a caption and a strip of every stage. Stages Painty looked

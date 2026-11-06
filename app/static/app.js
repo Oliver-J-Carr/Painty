@@ -18,6 +18,8 @@ let ws = null;
 let state = "connecting";
 let shapesOnCanvas = 0;
 let savedId = null;
+// The current drawing as it started (from canvas_reset), for Paint again on the finished card.
+let lastRun = null;
 
 // ------------------------------------------------------------------ status line
 // The short line in the top bar: what Painty is doing while it paints, or that the
@@ -208,6 +210,7 @@ function applyState(e) {
     const tokens = t.input || t.output ? `Tokens: ${tokenText(t)}. ` : "";
     $("finished-meta").textContent = `${shapesOnCanvas} shapes. ${tokens}${savedId ? "Saved to the gallery." : "Not saved."}`;
     $("view-saved").hidden = !savedId;
+    if (lastRun) lastRun.title = e.title || "Untitled";
   }
   if (state === "stopped" || state === "error") {
     $("halted-text").textContent = e.reason || STATES[state];
@@ -225,6 +228,7 @@ function onCanvasReset(e) {
   shownReference = e.reference || null;
   if (e.reference) $("ref-shown-img").src = e.reference;
   $("prompt-shown").hidden = false;
+  lastRun = { prompt: e.prompt, reference: e.reference, shape: e.shape, settings: e.settings, title: null };
 }
 
 let shownReference = null; // the current drawing's reference image (a data URL), if any
@@ -259,6 +263,7 @@ function handle(e) {
       clearCanvas();
       clearFeed();
       $("prompt-shown").hidden = true;
+      savedSettings = e.settings;
       setupSettings(e.options, e.settings);
       configuredModels = e.options.models;
       canvases = e.canvases;
@@ -279,7 +284,7 @@ function handle(e) {
     case "look": onLook(e); break;
     case "budget": renderBudget(e); break;
     case "activity": onActivity(e); break;
-    case "settings": fillSettings(e.settings); if (state !== "painting") previewBudget(e.settings); break;
+    case "settings": savedSettings = e.settings; fillSettings(e.settings); if (state !== "painting") previewBudget(e.settings); break;
     case "error": toast(e.text, "error"); break;
   }
 }
@@ -438,7 +443,65 @@ newForm.addEventListener("submit", (ev) => {
   send({ type: "paint", prompt, canvas: newForm.elements.canvas.value, ...(refUrl ? { reference: refUrl } : {}) });
   $("prompt").value = "";
   clearReference();
+  endRerun(); // its settings were just sent, so they stay
   dialog.close();
+  $("gallery").hidden = true; // Paint again from a gallery painting: show the new one painting
+});
+
+// ---- paint again
+// Paint again (on the finished card and on a gallery painting) opens this dialog filled in with
+// an earlier painting's prompt, reference image, canvas and settings, to keep or change. They're
+// only a suggestion until Paint is pressed: closing the dialog instead clears the prompt and image
+// and puts the saved settings back.
+let savedSettings = null; // the settings as saved on the server, from hello and settings
+let rerunning = false;    // the dialog holds an earlier painting's settings, not saved yet
+
+async function paintAgain({ prompt, reference, shape, settings, title }) {
+  if (state === "painting" || state === "connecting") {
+    toast("Painty is busy. Wait for this painting to end, or stop it, then try again.");
+    return;
+  }
+  // Older paintings predate the grid modes (they had the ruler frame) and the exemplar.
+  const wanted = { grid: "frame", exemplar: false, ...(settings || {}) };
+  const gone = wanted.model && !configuredModels.includes(wanted.model) ? wanted.model : null;
+  const values = {};
+  for (const input of dialog.querySelectorAll("[data-setting]")) { // not the drawer's top-ups
+    const name = input.dataset.setting;
+    if (name in wanted && !(name === "model" && gone)) values[name] = wanted[name];
+  }
+
+  clearReference();
+  if (reference) {
+    try {
+      await setReference(await (await fetch(reference)).blob());
+    } catch {
+      refError("The reference image couldn't be loaded. Add it again, or paint without it.");
+    }
+  }
+  if (state === "painting" || state === "connecting") return; // changed while the image loaded
+  newForm.elements.canvas.value = canvases[shape] ? shape : "square";
+  if (refSource) cropReference(); // the saved reference is already this shape, so nothing is lost
+  $("prompt").value = prompt || "";
+  fillSettings(values);
+  rerunning = true;
+  const note = $("rerun-note");
+  note.textContent = `Filled in from “${title || "Untitled"}”. Change anything you like, then paint.`
+    + (gone ? ` ${gone} isn't offered any more, so it's set to ${$("set-model").value}.` : "");
+  note.hidden = false;
+  openNewPainting();
+}
+
+function endRerun() {
+  rerunning = false;
+  $("rerun-note").hidden = true;
+}
+
+dialog.addEventListener("close", () => {
+  if (!rerunning) return;
+  endRerun();
+  $("prompt").value = "";
+  clearReference();
+  if (savedSettings) fillSettings(savedSettings);
 });
 
 // ------------------------------------------------------------------ buttons
@@ -447,6 +510,7 @@ $("keep-going").addEventListener("click", () => send({ type: "keep_going" }));
 $("finish-here").addEventListener("click", () => send({ type: "save" }));
 $("save-halted").addEventListener("click", () => send({ type: "save" }));
 $("view-saved").addEventListener("click", () => openGallery(savedId));
+$("paint-again").addEventListener("click", () => { if (lastRun) paintAgain(lastRun); });
 
 // ------------------------------------------------------------------ settings
 // The settings live in two places: the painter and budget in the New painting dialog, and
@@ -510,6 +574,7 @@ function lockSettings(locked) {
 document.addEventListener("change", (ev) => {
   if (!ev.target.dataset?.setting) return;
   if (ev.target.dataset.setting === "vision") syncLooksInput();
+  if (rerunning && dialog.contains(ev.target)) return; // saved when Paint is pressed
   send({ type: "settings", settings: readSettings() });
 });
 
@@ -895,6 +960,14 @@ function showDetail(m) {
   const title = el("div", "detail-title");
   title.append(el("h3", "", m.title), starButton(m));
   right.append(title, el("p", "painting-note", m.note || ""));
+  const again = el("button", "ghost-dark again", "Paint again");
+  again.type = "button";
+  again.title = "Open New painting with this painting's prompt, image and settings";
+  again.addEventListener("click", () => paintAgain({
+    prompt: m.prompt, reference: m.reference ? `${base}/reference.png` : null,
+    shape: canvasOf(m).shape, settings: m.settings, title: m.title,
+  }));
+  right.appendChild(again);
 
   const endings = { finished: "Painty finished it", ended: "Painty stopped without finishing", saved: "You saved it" };
   const c = canvasOf(m);
