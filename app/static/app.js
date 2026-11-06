@@ -183,6 +183,22 @@ function tokenText({ input = 0, cached, output = 0, reasoning }) {
 }
 
 // Dollars, with enough places to show small amounts: $1.24, $0.042, $0.0037.
+// ---- benchmark scores
+const pct = (v) => `${Math.round(100 * v)}%`;
+const offsetText = (o) => (o ? `${o[0] >= 0 ? "+" : ""}${o[0]}, ${o[1] >= 0 ? "+" : ""}${o[1]} px` : "none");
+const cardTitle = (name) => benchmarks.find((b) => b.name === name)?.title || name;
+
+// "Benchmark score 72%", then the best and weakest items.
+function scoreLine(s, card) {
+  const items = [...(s.items || [])].sort((a, b) => b.score - a.score);
+  const parts = [`${cardTitle(card || s.card)}`];
+  if (items.length > 1) {
+    parts.push(`best: ${items[0].name} ${pct(items[0].score)}`,
+      `weakest: ${items.at(-1).name} ${pct(items.at(-1).score)}`);
+  }
+  return [el("strong", "", `Benchmark score ${pct(s.score)}`), ` · ${parts.join(" · ")}`];
+}
+
 function usd(n) {
   if (n >= 1) return `$${n.toFixed(2)}`;
   if (n === 0) return "$0.00";
@@ -228,6 +244,9 @@ function applyState(e) {
       : `${e.reason} A benchmark's budget is fixed, so finish here to save it for scoring.`;
   }
   if (state === "finished") {
+    const score = $("finished-score");
+    score.hidden = !e.benchmark_score;
+    score.replaceChildren(...(e.benchmark_score ? scoreLine(e.benchmark_score, e.meta?.benchmark) : []));
     savedId = e.saved_id || null;
     $("finished-title").textContent = e.title || "Untitled";
     $("finished-note").textContent = e.note || "";
@@ -901,6 +920,11 @@ function renderGallery({ keepScroll = false } = {}) {
     img.alt = m.title;
     img.loading = "lazy";
     art.appendChild(img);
+    if (m.benchmark_score) {
+      const badge = el("span", "card-score", pct(m.benchmark_score.score));
+      badge.title = `Benchmark score: ${cardTitle(m.benchmark)}`;
+      art.appendChild(badge);
+    }
     if (m.reference) { // the reference, small in the corner, so the pair reads at a glance
       const ref = el("img", "card-ref");
       ref.src = `/gallery/${encodeURIComponent(m.id)}/reference.png`;
@@ -918,6 +942,36 @@ function renderGallery({ keepScroll = false } = {}) {
     grid.appendChild(card);
   }
   if (keepScroll) $("gallery-body").scrollTop = scroll;
+}
+
+// A benchmark painting's score item by item, and the picture of the difference.
+function scoreItems(m, base) {
+  const wrap = el("section", "score-items");
+  wrap.appendChild(el("h4", "", "Benchmark items"));
+  const table = el("table", "score-table");
+  const head = el("tr");
+  for (const h of ["Item", "Score", "Shape", "Colour", "Offset"]) head.appendChild(el("th", "", h));
+  table.appendChild(head);
+  for (const i of m.benchmark_score.items) {
+    const row = el("tr");
+    row.title = `${i.level}. Shape at its best offset: ${pct(i.shifted)}`;
+    for (const v of [i.name, pct(i.score), pct(i.shape), i.colour === null ? "–" : pct(i.colour),
+      i.offset ? offsetText(i.offset).replace(" px", "") : "–"]) row.appendChild(el("td", "", v));
+    table.appendChild(row);
+  }
+  wrap.appendChild(table);
+  const diff = el("button", "score-diff");
+  diff.type = "button";
+  diff.title = "Card, painting and difference: grey matches, red is missing, blue is extra";
+  const img = el("img");
+  img.src = `${base}/benchmark-diff.png`;
+  img.alt = "The card, the painting and the difference between them";
+  img.loading = "lazy";
+  diff.appendChild(img);
+  diff.addEventListener("click", () => openLightbox(img.src, "Card · painting · difference",
+    [el("p", "", "Grey is paint in both, red is paint the copy is missing, blue is paint it added.")]));
+  wrap.appendChild(diff);
+  return wrap;
 }
 
 let gridScroll = 0; // where the grid was scrolled to, restored by "Back to all paintings"
@@ -1102,7 +1156,9 @@ function showDetail(m) {
   const rows = [
     ["Prompt", promptOf(m)],
     ["Canvas", `${c.shape[0].toUpperCase()}${c.shape.slice(1)}, ${c.width} × ${c.height}`],
-    ...(m.benchmark ? [["Benchmark", benchmarks.find((b) => b.name === m.benchmark)?.title || m.benchmark]] : []),
+    ...(m.benchmark ? [["Benchmark", cardTitle(m.benchmark)]] : []),
+    ...(m.benchmark_score ? [["Score", `${pct(m.benchmark_score.score)} (whole canvas `
+      + `${pct(m.benchmark_score.canvas)}, offset ${offsetText(m.benchmark_score.offset)})`]] : []),
     ["Model", [modelPill(s.model), ` (effort: ${s.reasoning_effort || "default"})`]],
     ["Vision", s.vision ? "On" : "Off"],
     ["Grid", GRID_NAMES[s.grid || "frame"] || s.grid], // older paintings had the ruler frame
@@ -1124,12 +1180,14 @@ function showDetail(m) {
     dl.append(el("dt", "", k), dd);
   }
   right.appendChild(dl);
+  if (m.benchmark_score) right.appendChild(scoreItems(m, base));
 
   const files = el("p", "files");
   const fileLinks = [["PNG", "painting.png"], ["SVG", "painting.svg"],
     ...(m.shape_format === "notation" ? [["Shapes", "shapes.txt"]] : []),
     ...(m.reference ? [["Reference", "reference-view.png"]] : []), // as Painty saw it, grid and all
     ...(m.benchmark ? [["Benchmark card", "benchmark.json"]] : []),
+    ...(m.benchmark_score ? [["Score diff", "benchmark-diff.png"]] : []),
     ...(m.exemplar_sheets || []).map((file, i) => [`Exemplar ${i + 1}`, file]),
     ["Shapes (JSON)", "shapes.json"], ["Details", "meta.json"]];
   for (const [label, file] of fileLinks) {

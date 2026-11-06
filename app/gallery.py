@@ -13,8 +13,10 @@ Each painting gets its own folder under DATA_DIR/gallery:
         reference-view.png  the reference as the agent saw it (grid included)
         exemplar-N.png    the exemplar sheets as the agent saw them, if shown
         benchmark.json    the benchmark card, if the reference was one (for scoring)
+        benchmark-diff.png  card | painting | difference, with each item's score
         meta.json         prompt, title, note, canvas, settings, budgets used, tokens,
-                          and favourite (set from the gallery; the only thing that changes later)
+                          favourite (set from the gallery) and benchmark_score (written
+                          again by --rescore): the only things that change later
 
 Plain files, no database: easy to browse, copy, zip or delete by hand.
 """
@@ -50,6 +52,8 @@ class SaveRequest:
     reference_view: bytes | None = None  # the same in the drawing's grid mode, as the agent saw it
     exemplar: tuple[bytes, ...] = ()     # the exemplar sheets as the agent saw them, if shown
     benchmark: dict | None = None        # the benchmark card (card_json), if the reference was one
+    benchmark_score: dict | None = None  # its score (benchmark_score.record), if it could be scored
+    benchmark_diff: bytes | None = None  # card | painting | difference, as a PNG
     looks: list[Look] = field(default_factory=list)
     stages: list[Stage] = field(default_factory=list)
     top_ups: int = 0
@@ -95,6 +99,8 @@ class Gallery:
             (folder / "reference-view.png").write_bytes(req.reference_view)
         if req.benchmark:
             (folder / "benchmark.json").write_text(json.dumps(req.benchmark, indent=1), encoding="utf-8")
+        if req.benchmark_diff:
+            (folder / "benchmark-diff.png").write_bytes(req.benchmark_diff)
         exemplar_files = [f"exemplar-{i}.png" for i in range(1, len(req.exemplar) + 1)]
         for name, png in zip(exemplar_files, req.exemplar):
             (folder / name).write_bytes(png)
@@ -122,6 +128,9 @@ class Gallery:
             # The benchmark card's name when the reference was one (its definition is in
             # benchmark.json, for app/benchmark_score.py). Missing otherwise.
             **({"benchmark": req.benchmark["name"]} if req.benchmark else {}),
+            # Its score, worked out when it was saved (python -m app.benchmark_score
+            # --rescore writes it again). Missing if it wasn't a benchmark or couldn't be scored.
+            **({"benchmark_score": req.benchmark_score} if req.benchmark_score else {}),
             "created_at": now,
             "duration_s": round(now - req.started_at, 1) if req.started_at else None,
             "settings": req.settings,
@@ -156,6 +165,19 @@ class Gallery:
         under the gallery, so nothing outside it can be touched. Raises OSError if
         the file can't be written.
         """
+        return self._update_meta(painting_id, {"favourite": bool(favourite)})
+
+    def save_score(self, painting_id: str, score: dict, diff: bytes) -> dict | None:
+        """Save a benchmark painting's score (again) in its meta.json, with its
+        difference picture. None if there's no such painting."""
+        meta = self._update_meta(painting_id, {"benchmark_score": score})
+        if meta is not None:
+            (self.root / painting_id / "benchmark-diff.png").write_bytes(diff)
+        return meta
+
+    def _update_meta(self, painting_id: str, changes: dict) -> dict | None:
+        """Change fields in one painting's meta.json, atomically, and return the meta.
+        The id must be one folder name straight under the gallery."""
         if not _ID.fullmatch(painting_id or "") or painting_id in (".", ".."):
             return None
         path = self.root / painting_id / "meta.json"
@@ -163,7 +185,7 @@ class Gallery:
             meta = json.loads(path.read_text(encoding="utf-8"))
         except FileNotFoundError:
             return None
-        meta["favourite"] = bool(favourite)
+        meta.update(changes)
         tmp = path.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(meta, indent=2), encoding="utf-8")
         tmp.replace(path)  # atomic, so a crash never leaves a half-written meta.json

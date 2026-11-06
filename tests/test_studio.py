@@ -798,9 +798,49 @@ def test_a_benchmark_card_is_the_reference_and_is_saved_for_scoring(tmp_path):
     assert meta["benchmark"] == "intermediate" and meta["reference"] is True
     assert (folder / "reference.png").read_bytes() == card_png("intermediate")
     assert json.loads((folder / "benchmark.json").read_text()) == card_json("intermediate")
+    # Scored when saved: in meta.json and the finished status, with the difference picture.
+    score = meta["benchmark_score"]
+    assert score["card"] == "intermediate" and score["scorer"] == 1
+    assert 0 <= score["score"] < 0.2 and len(score["items"]) == len(CARDS["intermediate"].items)
+    assert types(events, "status")[-1]["benchmark_score"] == score
+    assert Image.open(folder / "benchmark-diff.png").size == (768 * 3 + 24, 512 + 24)
     hello = studio.hello()
     assert [c["name"] for c in hello["benchmarks"]] == list(CARDS)
     assert hello["benchmark_prompt"] == BENCHMARK_PROMPT
+
+
+def test_a_perfect_copy_of_a_card_scores_full_marks(tmp_path):
+    from app.benchmark import CARDS
+
+    shapes = [t for item in CARDS["solids"].items for t in item.shapes]
+    steps = [[paint(shapes, "c1")], [finish("c2")]]
+    studio, _, events = make_studio(tmp_path, steps, exemplar=False)
+
+    async def go():
+        await studio.start("", "", None, benchmark="solids")
+        await _wait(studio)
+    run(go)
+
+    score = types(events, "status")[-1]["benchmark_score"]
+    assert score["score"] == 1 and list(score["offset"]) == [0, 0]
+    assert all(i["score"] == 1 for i in score["items"])
+
+
+def test_a_failed_score_never_stops_the_save(tmp_path, monkeypatch):
+    def broken(*args):
+        raise RuntimeError("scorer broke")
+    monkeypatch.setattr(studio_module, "score_painting", broken)
+    steps = [[paint([rect(0, 0, 10, 10)], "c1")], [finish("c2")]]
+    studio, _, events = make_studio(tmp_path, steps, exemplar=False)
+
+    async def go():
+        await studio.start("", "", None, benchmark="basic")
+        await _wait(studio)
+    run(go)
+
+    meta = json.loads((tmp_path / "gallery" / studio.saved_id / "meta.json").read_text())
+    assert meta["benchmark"] == "basic" and "benchmark_score" not in meta
+    assert types(events, "status")[-1]["benchmark_score"] is None
 
 
 def test_a_benchmark_card_alone_means_recreate_it(tmp_path):
@@ -837,8 +877,9 @@ def test_a_painting_without_a_card_has_no_benchmark(tmp_path):
     run(go)
 
     folder = tmp_path / "gallery" / studio.saved_id
-    assert "benchmark" not in json.loads((folder / "meta.json").read_text())
-    assert not (folder / "benchmark.json").exists()
+    meta = json.loads((folder / "meta.json").read_text())
+    assert "benchmark" not in meta and "benchmark_score" not in meta
+    assert not (folder / "benchmark.json").exists() and not (folder / "benchmark-diff.png").exists()
 
 
 def test_a_benchmark_has_a_fixed_budget_and_no_top_ups(tmp_path):

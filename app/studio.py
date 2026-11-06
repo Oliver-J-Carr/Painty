@@ -39,6 +39,7 @@ from .pricing import cost
 from .settings_store import SettingsStore
 from .tools import budget_left
 from .benchmark import BENCHMARK_PROMPT, CARDS, card_json, card_list, card_png
+from .benchmark_score import record, score_painting
 from .exemplar import exemplar_text, exemplar_views
 from .view import agent_view, data_url, reference_png
 
@@ -262,12 +263,28 @@ class Studio:
                               top_up={"shapes": s.top_up_shapes,
                                       "looks": s.top_up_looks if self.ctx.settings.vision else 0})
 
+    async def _score(self) -> tuple[dict | None, bytes | None]:
+        """A benchmark drawing's score and difference picture, worked out off the event
+        loop. (None, None) for other drawings, or if scoring fails (it never stops a save)."""
+        c = self.ctx
+        if not c.benchmark or not len(c.canvas):
+            return None, None
+        try:
+            result, diff = await asyncio.to_thread(score_painting, c.reference, c.canvas.to_svg(),
+                                                   card_json(c.benchmark))
+        except Exception:
+            log.exception("could not score the benchmark painting")
+            return None, None
+        return record(result), diff
+
     async def _save_and_finish(self, ending: str, title: str, note: str) -> None:
         c = self.ctx
+        score, diff = await self._score()
         req = SaveRequest(
             canvas=c.canvas, prompt=c.prompt, reference=c.reference,
             reference_view=c.reference_view, exemplar=c.exemplar, title=title, note=note, ending=ending,
             benchmark=card_json(c.benchmark) if c.benchmark else None,
+            benchmark_score=score, benchmark_diff=diff,
             settings=settings_dict(c.settings), shapes_budget=c.budget.shapes_total,
             looks_budget=c.budget.looks_total, looks=list(c.looks), stages=list(c.stages),
             top_ups=c.budget.top_ups,
@@ -288,7 +305,7 @@ class Studio:
                                   "Check that DATA_DIR is writable.")
         self.history = None
         await self._set_state("finished", title=title or "Untitled", note=note, ending=ending,
-                              saved_id=self.saved_id, meta=meta,
+                              saved_id=self.saved_id, meta=meta, benchmark_score=score,
                               tokens=c.tokens.to_dict(),
                               cost=cost(c.settings.model, c.tokens.input, c.tokens.cached,
                                         c.tokens.output, env.prices, c.tokens.cache_write))

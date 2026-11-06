@@ -86,12 +86,15 @@ Each benchmark card is a picture painted by Painty's own renderer from shapes in
 
 To run one, open **New painting** and choose a card under **Reference image**. It sets the canvas shape and fills in a standard prompt (you can edit it). It also sets and locks the budget, the same on every run so scores compare fairly: three times the card's own shapes plus 10 (rounded up to 5), because every correction is a new shape painted over the mistake, and 3 looks. A benchmark can't keep going: when its shapes run out, finish it there. Vision is still your choice, so you can compare blind runs (no looks) with sighted ones. See a card at `/benchmark/<name>.png` and its shapes at `/benchmark/<name>.txt` (`basic`, `intermediate`, `solids`, `effects`, `letters`, `combined`).
 
-Once the painting is saved, score it:
+Each benchmark painting is scored when it's saved. The score shows on the finished card and on the painting's gallery tile. The painting's page breaks it down item by item and shows the card, the painting and the difference side by side.
+
+The same scores from the command line:
 
 ```bash
 docker exec painty python -m app.benchmark_score                   # every benchmark painting, one line each
 docker exec painty python -m app.benchmark_score <gallery id>      # item by item
 docker exec painty python -m app.benchmark_score <gallery id> --diff /srv/data/diff.png --json
+docker exec painty python -m app.benchmark_score --rescore           # save scores again (older paintings, or after the scorer changes)
 ```
 
 Without Docker, run the same commands from the repo root with the venv active.

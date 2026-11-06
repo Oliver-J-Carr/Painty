@@ -19,10 +19,17 @@ The whole card gets the mean item score, a global offset (the shift that
 best lines up the whole painting) and a whole-canvas score that includes any
 stray paint outside the cells.
 
+A painting made from a card is scored when it's saved: the result goes in its
+meta.json (benchmark_score, a record()) and the picture of the difference in
+benchmark-diff.png, for the finished card and the gallery. --rescore writes them
+again, for paintings saved before scoring or after the scorer changes (bump
+SCORER_VERSION when it does, so a stale score can be told apart).
+
 Pillow only. Run it from the repo root (or in the container):
 
     python -m app.benchmark_score                 every benchmark painting, one line each
     python -m app.benchmark_score <id> [--diff out.png] [--json]
+    python -m app.benchmark_score [<id>] --rescore  save the score with the painting(s) again
 """
 
 from __future__ import annotations
@@ -42,6 +49,7 @@ PAINT_THRESHOLD = 24     # 0-255: a pixel further than this from white has paint
 COLOUR_TOLERANCE = 40    # 0-255: the most any channel may differ for colours to match
 MAX_SHIFT = 32           # px: the widest offset searched
 COARSE = 4               # px: the first pass of the offset search
+SCORER_VERSION = 1       # saved with each score: bump it when the scoring changes
 
 Box = tuple[int, int, int, int]
 
@@ -158,27 +166,45 @@ def score_images(card_img: Image.Image, copy_img: Image.Image, card: dict) -> Ca
     return CardScore(card.get("name", "?"), round(mean, 3), round(canvas, 3), offset, items)
 
 
-def score_folder(folder: Path) -> CardScore:
-    """Score a saved painting. Raises ValueError if it wasn't made from a benchmark card."""
+def score_painting(card_png: bytes, svg: str, card: dict) -> tuple[CardScore, bytes]:
+    """Score a painting (its SVG) against a card (its PNG and benchmark.json data).
+    Returns the score and the difference picture (diff_png)."""
+    card_img = Image.open(io.BytesIO(card_png)).convert("RGB")
+    copy_img = Image.open(io.BytesIO(render_png(svg))).convert("RGB")
+    result = score_images(card_img, copy_img, card)
+    return result, diff_png(card_img, copy_img, card, result)
+
+
+def record(result: CardScore) -> dict:
+    """The score as saved in meta.json (benchmark_score)."""
+    return {**asdict(result), "scorer": SCORER_VERSION}
+
+
+def _folder_inputs(folder: Path) -> tuple[bytes, str, dict]:
     card_file = folder / "benchmark.json"
     if not card_file.is_file():
         raise ValueError(f"{folder.name} wasn't painted from a benchmark card.")
-    card = json.loads(card_file.read_text(encoding="utf-8"))
-    card_img = Image.open(folder / "reference.png")
-    svg = (folder / "painting.svg").read_text(encoding="utf-8")
-    copy_img = Image.open(io.BytesIO(render_png(svg)))
-    return score_images(card_img, copy_img, card)
+    return ((folder / "reference.png").read_bytes(),
+            (folder / "painting.svg").read_text(encoding="utf-8"),
+            json.loads(card_file.read_text(encoding="utf-8")))
+
+
+def score_folder(folder: Path) -> CardScore:
+    """Score a saved painting. Raises ValueError if it wasn't made from a benchmark card."""
+    return score_folder_with_diff(folder)[0]
+
+
+def score_folder_with_diff(folder: Path) -> tuple[CardScore, bytes]:
+    return score_painting(*_folder_inputs(folder))
 
 
 # ------------------------------------------------------------------ the diff picture
-def diff_png(folder: Path, result: CardScore) -> bytes:
+def diff_png(card_img: Image.Image, copy_img: Image.Image, card: dict, result: CardScore) -> bytes:
     """Card | painting | difference, side by side, each cell outlined and labelled
     with its item's score. In the difference, grey is where they agree, red is
     paint the copy is missing and blue is paint the copy has that the card doesn't."""
-    card = json.loads((folder / "benchmark.json").read_text(encoding="utf-8"))
-    a = Image.open(folder / "reference.png").convert("RGB")
-    b = Image.open(io.BytesIO(render_png((folder / "painting.svg").read_text(encoding="utf-8"))))
-    b = b.convert("RGB").resize(a.size)
+    a = card_img.convert("RGB")
+    b = copy_img.convert("RGB").resize(a.size)
     pa, pb = _paint_mask(a), _paint_mask(b)
     w, h = a.size
     diff = Image.new("RGB", a.size, (255, 255, 255))
@@ -197,8 +223,8 @@ def diff_png(folder: Path, result: CardScore) -> bytes:
             x0, y0, x1, y1 = item["box"]
             d.rectangle((x + x0, 24 + y0, x + x1 - 1, 24 + y1 - 1), outline=(214, 40, 110))
             if i == 2:
-                d.text((x + x0 + 4, 24 + y0 + 3), f"{s.name}: {s.score:.2f}", fill=(214, 40, 110),
-                       font=font)
+                d.text((x + x0 + 4, 24 + y0 + 3), f"{s.name}: {round(100 * s.score)}%",
+                       fill=(214, 40, 110), font=font)
     buf = io.BytesIO()
     out.save(buf, format="PNG", optimize=True)
     return buf.getvalue()
@@ -260,10 +286,29 @@ def main(argv: list[str] | None = None) -> int:
                         help="a gallery id or folder; leave out to list every benchmark painting")
     parser.add_argument("--diff", type=Path, help="write card | painting | difference to this PNG")
     parser.add_argument("--json", action="store_true", help="print the score as JSON")
+    parser.add_argument("--rescore", action="store_true",
+                        help="save the score and difference picture with the painting again "
+                             "(every benchmark painting, if none is named)")
     args = parser.parse_args(argv)
 
     from .config import settings  # here, so importing this module reads no environment
+    from .gallery import Gallery
     gallery = settings.data_dir / "gallery"
+    if args.rescore:
+        folders = ([Path(args.painting) if Path(args.painting).is_dir() else gallery / args.painting]
+                   if args.painting else [p.parent for p in sorted(gallery.glob("*/benchmark.json"))])
+        failed = 0
+        for folder in folders:
+            try:
+                result, diff = score_folder_with_diff(folder)
+                Gallery(folder.parent).save_score(folder.name, record(result), diff)
+                print(f"{folder.name}: {round(100 * result.score)}%")
+            except (OSError, ValueError) as exc:
+                print(f"{folder.name}: can't score ({exc})", file=sys.stderr)
+                failed += 1
+        if not folders:
+            print(f"No benchmark paintings in {gallery.resolve()}.")
+        return 1 if failed else 0
     if not args.painting:
         print(_summary(gallery))
         return 0
@@ -271,7 +316,7 @@ def main(argv: list[str] | None = None) -> int:
     if not folder.is_dir():
         folder = gallery / args.painting
     try:
-        result = score_folder(folder)
+        result, diff = score_folder_with_diff(folder)
         meta = json.loads((folder / "meta.json").read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         print(f"Can't score {args.painting}: {exc}", file=sys.stderr)
@@ -281,7 +326,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print(_table(result, meta))
     if args.diff:
-        args.diff.write_bytes(diff_png(folder, result))
+        args.diff.write_bytes(diff)
         if not args.json:
             print(f"diff written to {args.diff}")
     return 0

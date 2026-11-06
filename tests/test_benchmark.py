@@ -171,6 +171,26 @@ def test_score_folder_and_the_command_line(tmp_path, monkeypatch, capsys):
     assert "basic" in listing and "letters" in listing and "fake-model" in listing
 
 
+def test_rescore_saves_the_score_with_each_benchmark_painting(tmp_path, monkeypatch, capsys):
+    from app.config import Settings
+    monkeypatch.setattr("app.config.settings", Settings(data_dir=tmp_path))
+    perfect = _saved(tmp_path)
+    partial = _saved(tmp_path, "letters", shapes=["line 46 64 46 196 #22313f thickness=10"])
+    meta = json.loads((perfect / "meta.json").read_text())
+    meta["favourite"] = True  # kept: only the score is written
+    (perfect / "meta.json").write_text(json.dumps(meta))
+
+    assert main(["--rescore"]) == 0
+    out = capsys.readouterr().out
+    assert f"{perfect.name}: 100%" in out and partial.name in out
+    meta = json.loads((perfect / "meta.json").read_text())
+    assert meta["benchmark_score"]["score"] == 1 and meta["favourite"] is True
+    assert (perfect / "benchmark-diff.png").exists()
+    assert json.loads((partial / "meta.json").read_text())["benchmark_score"]["score"] < 0.2
+
+    assert main([partial.name, "--rescore"]) == 0
+
+
 def test_a_painting_without_a_card_cant_be_scored(tmp_path, capsys):
     folder = tmp_path / "plain"
     folder.mkdir()

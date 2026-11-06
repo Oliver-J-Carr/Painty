@@ -70,7 +70,7 @@ docker image prune
 - `app/view.py`: SVG to PNG (resvg), the agent's view in its grid mode (`frame`, `overlay` or `none`, drawn with Pillow), and reference images (checked, cropped to the canvas, shown in the same grid mode).
 - `app/exemplar.py`: the exemplar sheets. Examples written in the notation, painted by the real renderer, labelled in Pillow and cached per grid mode; `exemplar_text()` builds the matching text from the same lines.
 - `app/benchmark.py`: the benchmark cards. Pictures written in the notation (items in cells, at graded levels), painted by the real renderer, served at `/benchmark/<name>.png` and `.txt`. A chosen card becomes the drawing's reference, painted by the server, and is saved as `benchmark.json`.
-- `app/benchmark_score.py`: scores a saved benchmark painting against its card, item by item (`python -m app.benchmark_score`). Pillow only.
+- `app/benchmark_score.py`: scores a benchmark painting against its card, item by item. Run when a benchmark painting is saved (`meta.benchmark_score`, `benchmark-diff.png`), and from the command line (`python -m app.benchmark_score`, `--rescore` to save scores again). Bump `SCORER_VERSION` when the scoring changes. Pillow only.
 - `app/gallery.py`: saves finished paintings as plain files under `DATA_DIR/gallery`, including a snapshot of each stage (one per paint call that painted), rendered at save time.
 - `app/pricing.py`: the estimated cost of a painting from its tokens and the `PAINTY_PRICE_<MODEL>` prices. Worked out live for `/api/gallery` (each item's `cost`) and the finished status.
 - `app/settings_store.py`: the on-screen settings (in the New painting dialog and the settings drawer), clamped and saved to `DATA_DIR/settings.json`.
@@ -138,7 +138,7 @@ docker image prune
   - `shapes`: `shapes` as `[{n, svg}]` in paint order, plus `key` (the tool call id).
   - `look`: `key`, `n`, `focus` and `image` (a PNG data URL of exactly what the agent saw).
   - `budget`: shapes and looks used, total and left, and `top_ups`.
-  - `status`: `state` of `painting`, `paused` (`reason`, `top_up`: null for a benchmark, which can't keep going), `finished` (`title`, `note`, `ending`, `saved_id`, `meta`, `tokens`, `cost`), `stopped` or `error` (`reason`).
+  - `status`: `state` of `painting`, `paused` (`reason`, `top_up`: null for a benchmark, which can't keep going), `finished` (`title`, `note`, `ending`, `saved_id`, `meta`, `benchmark_score` (null unless a scored benchmark), `tokens`, `cost`), `stopped` or `error` (`reason`).
   - `phase`: `thinking`, `paint`, `look` or `finish`, shown in the top bar's status line while painting.
   - `activity`: feed entries. Tool entries share a `key` and go from `running` to `done` or `error`. An optional `image` (a data URL) shows as a thumbnail, such as the reference image as Painty sees it.
   - `settings`: the current settings after an update.
