@@ -54,18 +54,32 @@ function parseFragment(svg) {
   return document.importNode(doc.documentElement.firstElementChild, true);
 }
 
+// The queue holds shapes ({svg} from the server, or {node} from a replay) and, for a
+// replay, steps to run in between ({run}, such as a feed entry). Each item waits its
+// own delay (SHAPE_GAP_MS unless it says otherwise) before the next one.
 function queueShapes(shapes) {
   for (const s of shapes) shapeQueue.push(s);
   if (!pumping) pump();
+}
+
+function showItem(item) {
+  if (item.svg) layer.appendChild(parseFragment(item.svg));
+  if (item.node) layer.appendChild(document.importNode(item.node, true));
+  if (item.run) item.run();
 }
 
 function pump() {
   const next = shapeQueue.shift();
   if (!next) { pumping = false; return; }
   pumping = true;
-  layer.appendChild(parseFragment(next.svg));
+  showItem(next);
   if (reducedMotion) { pump(); return; }
-  setTimeout(pump, SHAPE_GAP_MS);
+  setTimeout(pump, next.delay ?? SHAPE_GAP_MS);
+}
+
+// Show everything still queued at once (a replay's Skip to end).
+function flushQueue() {
+  while (shapeQueue.length) showItem(shapeQueue.shift());
 }
 
 function clearCanvas() {
@@ -262,15 +276,12 @@ function applyState(e) {
 }
 
 function onCanvasReset(e) {
+  endReplay();
   clearCanvas();
   clearFeed();
   savedId = null;
   setCanvasSize(e.width, e.height);
-  $("prompt-text").textContent = e.prompt ? `“${e.prompt}”` : "Recreating the reference image";
-  $("ref-shown").hidden = !e.reference;
-  shownReference = e.reference || null;
-  if (e.reference) $("ref-shown-img").src = e.reference;
-  $("prompt-shown").hidden = false;
+  showPrompt(e.prompt ? `“${e.prompt}”` : "Recreating the reference image", e.reference);
   lastRun = { prompt: e.prompt, reference: e.reference, benchmark: e.benchmark, shape: e.shape,
               settings: e.settings, title: null };
 }
@@ -305,6 +316,129 @@ function setTopUpLimits(limits) {
     if (input) { input.min = lo; input.max = hi; }
   }
 }
+
+// ------------------------------------------------------------------ replay
+// A gallery painting painted again on the studio canvas, shape by shape, with its
+// stages, looks and plans in the feed at the points they happened. All in the browser:
+// painting.svg holds every shape's own fragment, exactly as it was painted, so the
+// replay matches the original even if the renderer has changed since.
+const STAGE_GAP_MS = 700; // before each batch, as if Painty were thinking
+const LOOK_GAP_MS = 900;  // after each look, to take it in
+let replaying = null;     // the painting being replayed (its meta), while its card shows
+
+async function replay(m) {
+  if (state === "painting" || state === "paused") {
+    toast("Painty is busy. Replay a painting once this one has finished or been stopped.");
+    return;
+  }
+  if (!$("halted").hidden && !$("save-halted").hidden) {
+    toast("This drawing isn't saved yet. Save it to the gallery first, or it will be lost from view.");
+    return;
+  }
+  const base = `/gallery/${encodeURIComponent(m.id)}`;
+  let shapes, plans = [];
+  try {
+    const svg = await (await fetch(`${base}/painting.svg`)).text();
+    const doc = new DOMParser().parseFromString(svg, "image/svg+xml");
+    shapes = [...doc.documentElement.children].filter((n) => n.matches("g[data-n]"));
+    if (m.plans?.length) plans = await planTexts(`${base}/plan.txt`);
+  } catch {
+    toast("This painting couldn't be loaded for a replay.", "error");
+    return;
+  }
+  if (state === "painting" || state === "paused") return; // a painting started while it loaded
+
+  $("gallery").hidden = true;
+  const c = canvasOf(m);
+  clearCanvas();
+  clearFeed();
+  setCanvasSize(c.width, c.height);
+  showPrompt(promptOf(m) ? `“${promptOf(m)}”` : "Recreating the reference image",
+             m.reference ? `${base}/reference.png` : null);
+  for (const id of ["paused", "finished", "halted"]) show(id, false);
+  replaying = m;
+  $("replay-title").textContent = m.title || "Untitled";
+  $("replay-meta").textContent = `Replaying ${m.shapes_used} shapes…`;
+  $("replay-skip").hidden = false;
+  $("replay-again").hidden = true;
+  show("replay", true);
+  setStatus("Replaying…");
+
+  let painted = 0, looked = 0;
+  const meter = () => renderBudget({ shapes_used: painted, shapes_total: m.shapes_budget,
+                                     looks_used: looked, looks_total: m.looks_budget || 0 });
+  meter();
+  const s = m.settings || {};
+  addEntry({ text: `▶️ Replaying “${m.title || "Untitled"}”`,
+             detail: `${s.model || "?"}, vision ${s.vision ? "on" : "off"}, ${c.shape} ${c.width} × ${c.height}` });
+
+  const steps = [];
+  const planStep = (i) => steps.push({ delay: STAGE_GAP_MS, run: () => addEntry(
+    { kind: "tool", tool: "plan", text: "📝 Writing a plan", detail: plans[i] || "" }) });
+  const lookStep = (i) => steps.push({ delay: LOOK_GAP_MS, run: () => {
+    looked += 1;
+    meter();
+    const focus = m.looks?.[i - 1]?.focus || "";
+    addEntry({ kind: "tool", tool: "look", text: `👀 Looking at the canvas${focus ? `: ${focus}` : ""}`,
+               image: `${base}/looks/look-${i}.png` });
+  } });
+  const shapeSteps = (from, to) => {
+    for (const node of shapes.slice(from - 1, to)) steps.push({ node, run: () => { painted += 1; meter(); } });
+  };
+  const plansAfter = (n) => (m.plans || []).forEach((p, i) => { if (p.shapes === n) planStep(i); });
+
+  plansAfter(0);
+  if (m.stages?.length) {
+    for (const st of m.stages) {
+      if (st.n > 0) {
+        const count = st.last - st.first + 1;
+        steps.push({ delay: STAGE_GAP_MS, run: () => addEntry({ kind: "tool", tool: "paint",
+          text: `🖌️ Painting ${count} shape${count === 1 ? "" : "s"}${st.note ? `: ${st.note}` : ""}` }) });
+        shapeSteps(st.first, st.last);
+      }
+      for (const i of st.looks || []) lookStep(i);
+      if (st.n > 0) plansAfter(st.last);
+    }
+  } else {
+    shapeSteps(1, shapes.length); // older paintings have no stages: just the shapes
+  }
+  steps.push({ run: () => {
+    painted = shapes.length;
+    meter();
+    addEntry({ kind: "tool", tool: "finish", text: `🏁 “${m.title || "Untitled"}”`, detail: m.note || "" });
+    $("replay-meta").textContent = `Replayed ${shapes.length} shapes.`;
+    $("replay-skip").hidden = true;
+    $("replay-again").hidden = false;
+    setStatus("");
+  } });
+  queueShapes(steps);
+}
+
+// plan.txt holds every plan in order, each headed "Plan N, written ...".
+async function planTexts(url) {
+  const res = await fetch(url);
+  if (!res.ok) return [];
+  return (await res.text()).split(/^(?=Plan \d+, written )/m)
+    .map((part) => part.replace(/^Plan \d+, written [^\n]*\n+/, "").trim()).filter(Boolean);
+}
+
+function endReplay() {
+  if (!replaying) return;
+  replaying = null;
+  show("replay", false);
+}
+
+function showPrompt(text, reference) {
+  $("prompt-text").textContent = text;
+  $("ref-shown").hidden = !reference;
+  shownReference = reference || null;
+  if (reference) $("ref-shown-img").src = reference;
+  $("prompt-shown").hidden = false;
+}
+
+$("replay-skip").addEventListener("click", flushQueue);
+$("replay-again").addEventListener("click", () => { if (replaying) replay(replaying); });
+$("replay-gallery").addEventListener("click", () => { if (replaying) openGallery(replaying.id); });
 
 // ------------------------------------------------------------------ socket
 function send(msg) {
@@ -1192,7 +1326,14 @@ function showDetail(m) {
     prompt: m.prompt, reference: m.reference ? `${base}/reference.png` : null,
     benchmark: m.benchmark, shape: canvasOf(m).shape, settings: m.settings, title: m.title,
   }));
-  right.appendChild(again);
+  const replayBtn = el("button", "ghost-dark again", "Replay");
+  replayBtn.type = "button";
+  replayBtn.title = "Paint it again on the canvas, shape by shape, as it was painted";
+  replayBtn.disabled = !m.shapes_used;
+  replayBtn.addEventListener("click", () => replay(m));
+  const actions = el("div", "detail-actions");
+  actions.append(again, replayBtn);
+  right.appendChild(actions);
 
   const endings = { finished: "Painty finished it", ended: "Painty stopped without finishing", saved: "You saved it" };
   const c = canvasOf(m);

@@ -349,6 +349,7 @@ button, input, select, textarea { font: inherit; }
 .score-diff img { display: block; width: 100%; box-shadow: 0 0 0 1px var(--paper-edge); }
 .gallery-detail .files { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 14px; }
 .gallery-detail .files a { white-space: nowrap; } /* wrap between links, never inside one */
+.gallery-detail .detail-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .gallery-detail .again { padding: 6px 12px; margin-bottom: 12px; }
 .gallery-detail a { color: var(--mat); font-weight: 600; }
 

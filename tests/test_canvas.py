@@ -98,6 +98,30 @@ def test_to_svg_upto_renders_only_the_first_shapes():
     assert pixel(canvas.to_svg(), 75, 75) == (0, 0, 255)
 
 
+def test_painting_svg_holds_each_shape_as_its_own_fragment_for_replay():
+    # The gallery's replay splits painting.svg into its top-level <g data-n> fragments
+    # and paints them one by one, so each must stand alone (its own gradients and filters).
+    import re
+    import xml.etree.ElementTree as ET
+    canvas = Canvas()
+    texts = ["rectangle 0 0 512 300 linear #4a90d9 #cfe8ff 180",
+             "ellipse 100 100 200 200 #ff0000 spray=0.4 soft=4",
+             "line 10 400 300 420 #222222 thickness=8 bend=20@180 taper=end"]
+    good, errors, _ = check_batch(texts, 512, 512)
+    assert not errors
+    canvas.add([sh for _, sh in good], texts)
+    root = ET.fromstring(canvas.to_svg())
+    children = list(root)
+    assert children[0].tag.endswith("rect")  # the white background
+    frags = children[1:]
+    assert [f.get("data-n") for f in frags] == ["1", "2", "3"]
+    assert all(f.tag.endswith("}g") for f in frags)
+    for ps in canvas.shapes:
+        used = set(re.findall(r"url\(#([^)]+)\)", ps.svg))
+        defined = set(re.findall(r'id="([^"]+)"', ps.svg))
+        assert used <= defined, f"shape {ps.n} uses paint defined outside its fragment"
+
+
 def test_later_shapes_cover_earlier_ones():
     canvas = Canvas()
     canvas.add([make(start=(0, 0), end=(100, 100), colours=["#ff0000"]),
