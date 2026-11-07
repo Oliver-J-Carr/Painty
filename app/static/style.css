@@ -138,6 +138,9 @@ button, input, select, textarea { font: inherit; }
 .outcome-title { margin: 0; font-weight: 600; flex: 1 1 260px; }
 .outcome-actions { display: flex; gap: 10px; flex-wrap: wrap; }
 .outcome-meta { margin: 6px 0 0; color: var(--graphite-soft); font-size: 13px; }
+.replay-speed { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.replay-speed-label { font-size: 13px; color: var(--graphite-soft); margin-right: 4px; }
+.replay-speed .filter-chip { padding: 3px 10px; }
 .outcome-score { margin: 6px 0 0; font-size: 14px; }
 .outcome-score strong { font-variant-numeric: tabular-nums; }
 .outcome .ghost-dark { padding: 6px 12px; }

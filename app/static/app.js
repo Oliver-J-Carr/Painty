@@ -74,7 +74,8 @@ function pump() {
   pumping = true;
   showItem(next);
   if (reducedMotion) { pump(); return; }
-  setTimeout(pump, next.delay ?? SHAPE_GAP_MS);
+  const speed = replaying ? replaySpeed : 1; // live painting always goes at its own pace
+  setTimeout(pump, (next.delay ?? SHAPE_GAP_MS) / speed);
 }
 
 // Show everything still queued at once (a replay's Skip to end).
@@ -325,6 +326,26 @@ function setTopUpLimits(limits) {
 const STAGE_GAP_MS = 700; // before each batch, as if Painty were thinking
 const LOOK_GAP_MS = 900;  // after each look, to take it in
 let replaying = null;     // the painting being replayed (its meta), while its card shows
+// Playback speed, remembered in this browser (a convenience: it falls back to 1×).
+const REPLAY_SPEEDS = [1, 2, 4, 8, 16];
+let replaySpeed = 1;
+try {
+  const saved = Number(localStorage.getItem("painty.replaySpeed"));
+  if (REPLAY_SPEEDS.includes(saved)) replaySpeed = saved;
+} catch { /* storage blocked: stay at 1× */ }
+
+function setReplaySpeed(speed) {
+  replaySpeed = REPLAY_SPEEDS.includes(speed) ? speed : 1;
+  for (const b of $("replay-speed").querySelectorAll("[data-speed]")) {
+    b.setAttribute("aria-pressed", String(Number(b.dataset.speed) === replaySpeed));
+  }
+  try { localStorage.setItem("painty.replaySpeed", String(replaySpeed)); } catch { /* not kept */ }
+}
+setReplaySpeed(replaySpeed);
+$("replay-speed").addEventListener("click", (ev) => {
+  const b = ev.target.closest("[data-speed]");
+  if (b) setReplaySpeed(Number(b.dataset.speed)); // applies from the next shape
+});
 
 async function replay(m) {
   if (state === "painting" || state === "paused") {
