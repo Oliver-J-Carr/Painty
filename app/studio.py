@@ -34,7 +34,7 @@ from .config import settings as env
 from .context import Budget, PaintyContext, SendEvent
 from .gallery import Gallery, SaveRequest, settings_dict
 from .hooks import ActivityHooks
-from .painter import PAUSED, PAUSED_LOOKS, build_painter_agent
+from .painter import PAUSED, PAUSED_LOOKS, build_painter_agent, planning_agent
 from .pricing import cost
 from .settings_store import SettingsStore
 from .tools import budget_left
@@ -49,6 +49,8 @@ MAX_PROMPT = 500
 GRID_WORDS = {"frame": "in the ruler frame", "overlay": "with the grid drawn on it", "none": "with no grid"}
 # Spare model calls on top of the budget, for invalid batches and thinking.
 SPARE_TURNS = 10
+# The planning turn's own limit: it is forced to call plan and stops straight after.
+PLANNING_TURNS = 2
 # Keep going: what you may add each time (min, max), and what the paused card suggests
 # for whatever has run out. You type the amounts on the card, so nothing is fixed.
 TOP_UP_LIMITS = {"shapes": (0, 500), "looks": (0, 50)}
@@ -251,7 +253,10 @@ class Studio:
                                  "reference": str(ctx.reference is not None).lower(),
                                  "vision": str(ctx.settings.vision).lower(),
                                  "grid": ctx.settings.grid,
-                                 "exemplar": str(ctx.settings.exemplar).lower()}):
+                                 "exemplar": str(ctx.settings.exemplar).lower(),
+                                 "planning": str(ctx.settings.planning).lower()}):
+                if label == "start" and ctx.settings.planning:
+                    run_input = await self._plan_first(run_input)
                 result = await Runner.run(self.agent, run_input, context=ctx,
                                           hooks=self.hooks, max_turns=_turn_limit(ctx.budget))
             self.history = result.to_input_list()
@@ -278,6 +283,27 @@ class Studio:
             self.history = None
             await self._quietly(self.ctx.activity("error", "⚠️ The drawing failed", repr(exc)))
             await self._quietly(self._set_state("error", reason=_short_error(exc)))
+
+    async def _plan_first(self, run_input):
+        """The planning turn: the painter, forced to call plan at the planning effort.
+        Returns the conversation for the painter to carry on from. A planning turn
+        that writes no plan doesn't stop the drawing: it paints without one."""
+        ctx = self.ctx
+        try:
+            result = await Runner.run(planning_agent(self.agent, ctx.settings), run_input, context=ctx,
+                                      hooks=self.hooks, max_turns=PLANNING_TURNS)
+            history, said = result.to_input_list(), str(result.final_output or "")
+        except MaxTurnsExceeded as exc:
+            history, said = _history_from(exc), str(exc)
+        if ctx.plans:
+            return history
+        await ctx.activity("error", "📝 Painty didn't write a plan on its planning turn", said)
+        if history is None:
+            return run_input
+        last = history[-1] if history else {}
+        if isinstance(last, dict) and last.get("type") == "function_call_output":
+            return history  # a refused plan: the error says what to fix, and it can plan again
+        return history + [{"role": "user", "content": "Now paint it."}]
 
     async def _pause(self, reason: str) -> None:
         """Pause and ask how much to add. top_up holds the amounts the paused card
@@ -319,6 +345,7 @@ class Studio:
             benchmark_score=score, benchmark_diff=diff,
             settings=settings_dict(c.settings), shapes_budget=c.budget.shapes_total,
             looks_budget=c.budget.looks_total, looks=list(c.looks), stages=list(c.stages),
+            plans=list(c.plans),
             top_ups=c.budget.top_ups,
             input_tokens=c.tokens.input, cached_tokens=c.tokens.cached,
             cache_write_tokens=c.tokens.cache_write,

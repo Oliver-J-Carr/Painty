@@ -16,7 +16,7 @@ from agents import Agent, RunContextWrapper, RunHooks
 from .canvas import kind_of, split_batch
 from .context import PaintyContext
 
-_ICONS = {"paint": "🖌️", "look": "👀", "finish": "🏁"}
+_ICONS = {"plan": "📝", "paint": "🖌️", "look": "👀", "finish": "🏁"}
 
 
 def _args(context: RunContextWrapper) -> dict[str, Any]:
@@ -35,6 +35,8 @@ def _shapes(a: dict[str, Any]) -> list[str]:
 
 def _describe(tool_name: str, a: dict[str, Any]) -> str:
     match tool_name:
+        case "plan":
+            return "Writing a plan"
         case "paint":
             shapes = _shapes(a)
             note = (a.get("note") or "").strip()
@@ -66,8 +68,8 @@ class ActivityHooks(RunHooks[PaintyContext]):
 
     async def on_tool_start(self, context, agent, tool) -> None:
         args = _args(context)
-        detail = _kinds(args) if tool.name == "paint" else (
-            args.get("note", "") if tool.name == "finish" else "")
+        detail = {"paint": lambda: _kinds(args), "finish": lambda: args.get("note", ""),
+                  "plan": lambda: args.get("plan", "")}.get(tool.name, lambda: "")()
         await context.context.emit({"type": "phase", "phase": tool.name})
         await context.context.emit(
             {"type": "activity", "kind": "tool", "status": "running",
@@ -88,5 +90,10 @@ class ActivityHooks(RunHooks[PaintyContext]):
         )
 
     async def on_agent_start(self, context: RunContextWrapper[PaintyContext], agent: Agent) -> None:
-        await context.context.activity("agent", f"🧑‍🎨 {agent.name} picked up the brush",
-                                       f"model: {context.context.settings.model}")
+        c = context.context
+        if agent.model_settings.tool_choice == "plan":  # the planning turn (painter.planning_agent)
+            effort = c.settings.planning_effort or "model default"
+            await c.activity("agent", f"📝 {agent.name} is planning the painting",
+                             f"model: {c.settings.model}, planning effort: {effort}")
+            return
+        await c.activity("agent", f"🧑‍🎨 {agent.name} picked up the brush", f"model: {c.settings.model}")

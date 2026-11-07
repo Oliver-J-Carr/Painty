@@ -12,6 +12,7 @@ Each painting gets its own folder under DATA_DIR/gallery:
         reference.png     the reference image, if one was given (canvas size)
         reference-view.png  the reference as the agent saw it (grid included)
         exemplar-N.png    the exemplar sheets as the agent saw them, if shown
+        plan.txt          every plan the agent wrote, if planning was on
         benchmark.json    the benchmark card, if the reference was one (for scoring)
         benchmark-diff.png  card | painting | difference, with each item's score
         meta.json         prompt, title, note, canvas, settings, budgets used, tokens,
@@ -30,7 +31,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from .canvas import Canvas
-from .context import Look, Stage
+from .context import Look, Plan, Stage
 from .view import render_png
 
 GALLERY_ZOOM = 2
@@ -56,6 +57,7 @@ class SaveRequest:
     benchmark_diff: bytes | None = None  # card | painting | difference, as a PNG
     looks: list[Look] = field(default_factory=list)
     stages: list[Stage] = field(default_factory=list)
+    plans: list[Plan] = field(default_factory=list)
     top_ups: int = 0
     input_tokens: int = 0
     cached_tokens: int = 0      # part of input_tokens, served from the prompt cache
@@ -104,6 +106,8 @@ class Gallery:
         exemplar_files = [f"exemplar-{i}.png" for i in range(1, len(req.exemplar) + 1)]
         for name, png in zip(exemplar_files, req.exemplar):
             (folder / name).write_bytes(png)
+        if req.plans:
+            (folder / "plan.txt").write_text(_plan_text(req.plans), encoding="utf-8")
         for i, look in enumerate(req.looks, start=1):
             (folder / "looks" / f"look-{i}.png").write_bytes(look.png)
         stages = _stage_log(req.stages, req.looks)
@@ -143,6 +147,9 @@ class Gallery:
             "stages": stages,
             "looks": [{"n": i, "focus": look.focus, "shapes": look.shapes}
                       for i, look in enumerate(req.looks, start=1)],
+            # Each plan the agent wrote (the text is in plan.txt), and how many shapes
+            # were on the canvas then. Empty when planning was off; older paintings have none.
+            "plans": [{"n": i, "shapes": p.shapes} for i, p in enumerate(req.plans, start=1)],
             "top_ups": req.top_ups,
             # How the model wrote its shapes. Older paintings (JSON shapes) have no
             # shape_format and no shapes.txt.
@@ -202,6 +209,15 @@ class Gallery:
             except (OSError, ValueError):
                 continue
         return sorted(items, key=lambda m: m.get("created_at", 0), reverse=True)
+
+
+def _plan_text(plans: list[Plan]) -> str:
+    """Every plan, in order, as one text file (.txt, so browsers show it rather than download it)."""
+    parts = []
+    for i, p in enumerate(plans, start=1):
+        when = "before painting" if p.shapes == 0 else f"after {p.shapes} shapes"
+        parts.append(f"Plan {i}, written {when}\n\n{p.text}\n")
+    return "\n".join(parts)
 
 
 def _stage_log(stages: list[Stage], looks: list[Look]) -> list[dict]:

@@ -1,5 +1,6 @@
 """Tools the painter agent can call.
 
+plan   writes down the agent's plan for the painting (only when planning is on)
 paint  lays down an ordered batch of shapes (the only way to put paint down)
 look   shows the agent a picture of the canvas (only when vision is on)
 finish ends the drawing with a title and a short artist's note
@@ -17,13 +18,14 @@ from __future__ import annotations
 from agents import RunContextWrapper, ToolOutputImage, ToolOutputText, function_tool
 
 from .canvas import check_batch, split_batch
-from .context import Look, PaintyContext, Stage
+from .context import Look, PaintyContext, Plan, Stage
 from .view import DEFAULT_GRID, GRID_STEP, agent_view_png, data_url
 
 Ctx = RunContextWrapper[PaintyContext]
 
 MAX_TITLE = 80
 MAX_NOTE = 500
+MAX_PLAN = 8000  # characters of a plan kept for the gallery (the model's own copy stays whole)
 # What a look's result says about the view, for each grid mode.
 GRID_RESULT = {
     "frame": f"Ruler and grid lines (every {GRID_STEP} px) are in your view only.",
@@ -38,6 +40,45 @@ def budget_left(c: PaintyContext) -> str:
     if c.settings.vision:
         text += f" Looks left: {b.looks_left} of {b.looks_total}."
     return text
+
+
+@function_tool
+async def plan(ctx: Ctx, plan: str) -> str:
+    """Write down your plan for the whole painting, before you paint anything.
+    It costs no paint. The plan stays in front of you for the rest of the drawing,
+    so make it specific enough to paint from. Use these five parts:
+
+    1. Composition: what the picture shows, where the main subject sits on the
+       canvas and how big it is, and what the background is.
+    2. Depth: for each prominent area of the picture, its parts listed from the
+       furthest away to the nearest, as the real object sits in three dimensions.
+       Name every opening, hollow or frame, and what is inside it or seen through
+       it: that is further back, so it is painted first, and the edge, rim or
+       frame around it is painted after, overlapping it.
+    3. Parts, in paint order, back to front, following the depth: every part of
+       the picture, each with the shapes you will paint it with, its rough box in
+       pixels (x1 y1 x2 y2) and its colours.
+    4. Overlap check: for every pair of parts that touch or overlap, say which is
+       nearer the viewer and confirm it comes later in the paint order. Fix the
+       order where it doesn't.
+    5. Stages: how the parts group into paint calls, and where you will look at
+       the canvas to check (if you can look).
+
+    Call it again only if the plan itself changes (a part moves, changes size or
+    needs a different paint order), with the whole corrected plan.
+
+    Args:
+        plan: The plan, as plain text in the five parts above.
+    """
+    c = ctx.context
+    text = (plan or "").strip()
+    if not text:
+        return "Error: the plan is empty. Write the plan in the five parts the tool describes."
+    c.plans.append(Plan(text[:MAX_PLAN], len(c.canvas)))
+    n = len(c.plans)
+    again = "Your plan is updated." if n > 1 else "Now paint it, following your plan."
+    return (f"Plan {n} recorded. {again} Call plan again only if the plan itself changes. "
+            f"{budget_left(c)}")
 
 
 @function_tool
@@ -163,6 +204,7 @@ async def finish(ctx: Ctx, title: str, note: str) -> str:
     return "Finished."
 
 
-def tools_for(vision: bool) -> list:
-    """With vision off, the look tool doesn't exist at all for the agent."""
-    return [paint, look, finish] if vision else [paint, finish]
+def tools_for(vision: bool, planning: bool = False) -> list:
+    """With vision off, the look tool doesn't exist at all for the agent; with
+    planning off, neither does the plan tool."""
+    return ([plan] if planning else []) + ([paint, look, finish] if vision else [paint, finish])

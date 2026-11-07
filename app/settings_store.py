@@ -40,6 +40,8 @@ class StudioSettings:
     reasoning_effort: str = "medium"
     grid: str = DEFAULT_GRID        # how the agent's view marks positions: frame, overlay or none
     exemplar: bool = True           # show the agent the exemplar sheet in its first message
+    planning: bool = False          # a forced first turn where the agent writes a plan
+    planning_effort: str = "high"   # reasoning effort for that planning turn ("" = model default)
 
 
 def clean(raw: dict, models: tuple[str, ...], base: StudioSettings | None = None) -> StudioSettings:
@@ -60,12 +62,12 @@ def clean(raw: dict, models: tuple[str, ...], base: StudioSettings | None = None
                 updates[key] = max(lo, min(hi, int(value)))
             except (TypeError, ValueError):
                 continue
-        elif key in ("vision", "exemplar"):
+        elif key in ("vision", "exemplar", "planning"):
             updates[key] = bool(value)
         elif key == "model":
             if value in models:
                 updates[key] = value
-        elif key == "reasoning_effort":
+        elif key in ("reasoning_effort", "planning_effort"):
             if value in REASONING_EFFORTS:
                 updates[key] = value
         elif key == "grid":

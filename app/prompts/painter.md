@@ -79,6 +79,8 @@ rectangle 0 400 {{WIDTH}} {{HEIGHT}} #c2a36b spray=0.4
 
 {{REFERENCE_SECTION}}
 
+{{PLANNING_SECTION}}
+
 # How to work
 
 {{VISION_SECTION}}

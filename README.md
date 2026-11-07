@@ -16,6 +16,7 @@ It's an experiment in agent adaptation. The agent can't fall back on SVG or CSS 
 - **Paint is permanent.** Every shape covers what's beneath it. There's no undo or eraser, so mistakes are fixed by painting over them.
 - **The agent can see its own work.** Each look sends a PNG snapshot to the *same* model doing the painting, with a ruler and grid in its view to help it map what it sees to coordinates. You choose the grid: a ruler frame round the picture, a grid drawn on the picture (so it stays exactly canvas-sized), or none.
 - **Vision on or off.** Run the same prompt with and without sight and compare the results.
+- **Plan first, or not.** Turn on planning and Painty's first move is to write down a plan: the parts in paint order, back to front, and what sits in front of what. It has its own reasoning effort. The plan shows in the feed, stays in Painty's conversation for the whole drawing, and is saved with the painting. Painty can revise it as it goes.
 - **Budgets you control.** Shape and look budgets, plus a cap on shapes per call, set in the New painting dialog alongside the model and vision.
 - **Paint again.** Re-run a painting from its finished card or from the gallery. The New painting dialog opens filled in with its prompt, reference image, canvas and settings, so you can change one thing and compare.
 - **Keep going.** When the shapes run out, or Painty wants to look with no looks left, the drawing pauses and asks how many shapes and looks to add. Type the amounts and the agent carries on exactly where it stopped.
@@ -66,6 +67,8 @@ These are set on screen and saved between restarts. Changes apply to the next dr
 | Let Painty see the canvas | On | Gives the agent the `look` tool. Off means it paints blind |
 | Show Painty the exemplar sheet first | On | Sends the two exemplar sheets and their shape text in the first message. See them at `/exemplar.png?sheet=1&grid=frame` and `/exemplar.txt` |
 | Grid on what Painty sees | Ruler frame | How every image Painty sees (its looks, the reference and the exemplar) marks positions: **Ruler frame** (numbered margin round the picture, 60 px bigger than the canvas), **Grid on the image** (lines and small numbers drawn on the picture, exactly canvas-sized) or **None** |
+| Let Painty write a plan before painting | Off | Painty's first turn is forced to call `plan`: composition, parts in paint order with boxes and colours, which parts overlap and which is in front, and stages. The plan costs no shapes, stays in the conversation, can be revised later, and is saved as `plan.txt` in the gallery |
+| Planning effort | High | The reasoning effort for that planning turn only. Later turns use Reasoning effort. Greyed out while planning is off |
 | Shapes | 60 | Shapes per drawing |
 | Looks | 5 | Looks per drawing |
 | Most shapes in one paint call | 15 | Stops the agent painting everything in one blind batch |

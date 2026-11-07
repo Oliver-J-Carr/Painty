@@ -41,6 +41,10 @@ def finish(cid, title="Test", note="A test painting."):
     return function_call("finish", {"title": title, "note": note}, call_id=cid)
 
 
+def plan(cid, text="1. Composition: a red square on blue."):
+    return function_call("plan", {"plan": text}, call_id=cid)
+
+
 def make_studio(tmp_path, steps, usage=None, **settings):
     """usage: the Usage every scripted model call reports (None = all zeros)."""
     events = []
@@ -1024,3 +1028,146 @@ def test_a_benchmark_carries_on_after_a_refused_look(tmp_path):
     assert studio.state == "finished" and studio.ctx.budget.looks_used == 3
     refused = model.calls[4].input[-1]
     assert refused["call_id"] == "c4" and "Carry on" in str(refused["output"])
+
+
+# ------------------------------------------------------------------ planning
+
+def test_planning_off_has_no_plan_tool_or_section(tmp_path):
+    steps = [[paint([rect(0, 0, 100, 100)], "c1")], [finish("c2")]]
+    studio, model, _ = make_studio(tmp_path, steps)
+
+    async def go():
+        await studio.start("no plan")
+        await _wait(studio)
+    run(go)
+
+    assert [t.name for t in model.calls[0].tools] == ["paint", "look", "finish"]
+    assert "# Planning" not in model.calls[0].system_instructions
+    assert model.calls[0].model_settings.tool_choice is None
+    meta = json.loads((tmp_path / "gallery" / studio.saved_id / "meta.json").read_text())
+    assert meta["plans"] == [] and not (tmp_path / "gallery" / studio.saved_id / "plan.txt").exists()
+
+
+def test_planning_turn_is_forced_at_its_own_effort_then_paints(tmp_path):
+    steps = [
+        [plan("c1", "Parts: sky, then square.")],
+        [paint([rect(0, 0, 512, 512, "#0000ff"), rect(100, 100, 200, 200, "#ff0000")], "c2")],
+        [finish("c3")],
+    ]
+    studio, model, events = make_studio(tmp_path, steps, planning=True, planning_effort="low",
+                                        reasoning_effort="medium")
+
+    async def go():
+        await studio.start("a red square on blue")
+        await _wait(studio)
+    run(go)
+
+    assert studio.state == "finished" and len(model.calls) == 3
+    first, second = model.calls[0], model.calls[1]
+    assert first.model_settings.tool_choice == "plan" and first.model_settings.reasoning.effort == "low"
+    assert second.model_settings.tool_choice is None and second.model_settings.reasoning.effort == "medium"
+    # Everything before the conversation is the same, so the painter reuses the cache.
+    assert len({c.system_instructions for c in model.calls}) == 1
+    assert len({tuple(t.name for t in c.tools) for c in model.calls}) == 1
+    assert [t.name for t in first.tools] == ["plan", "paint", "look", "finish"]
+    assert "# Planning" in first.system_instructions
+    assert all(c.model_settings.extra_args == {"prompt_cache_key": studio.drawing_id}
+               for c in model.calls)
+    # The painter carries on from the planning turn's history, plan included.
+    outputs = [i for i in second.input if isinstance(i, dict) and i.get("type") == "function_call_output"]
+    assert any(o["call_id"] == "c1" and "Plan 1 recorded" in o["output"] for o in outputs)
+
+    feed = types(events, "activity")
+    assert any("is planning" in e["text"] for e in feed)
+    plan_entry = next(e for e in feed if e.get("key") == "c1" and e.get("status") == "running")
+    assert plan_entry["tool"] == "plan" and plan_entry["detail"] == "Parts: sky, then square."
+
+    folder = tmp_path / "gallery" / studio.saved_id
+    meta = json.loads((folder / "meta.json").read_text())
+    assert meta["plans"] == [{"n": 1, "shapes": 0}]
+    assert meta["settings"]["planning"] is True and meta["settings"]["planning_effort"] == "low"
+    assert "Plan 1, written before painting" in (folder / "plan.txt").read_text()
+    assert "Parts: sky, then square." in (folder / "plan.txt").read_text()
+    assert studio.ctx.budget.shapes_used == 2  # planning costs no paint
+
+
+def test_the_plan_can_be_revised_later(tmp_path):
+    steps = [
+        [plan("c1", "First plan.")],
+        [paint([rect(0, 0, 100, 100)], "c2")],
+        [plan("c3", "Second plan.")],
+        [finish("c4")],
+    ]
+    studio, model, events = make_studio(tmp_path, steps, planning=True)
+
+    async def go():
+        await studio.start("revise")
+        await _wait(studio)
+    run(go)
+
+    assert studio.state == "finished"
+    assert [(p.text, p.shapes) for p in studio.ctx.plans] == [("First plan.", 0), ("Second plan.", 1)]
+    assert model.calls[2].model_settings.tool_choice is None  # only the first turn is forced
+    folder = tmp_path / "gallery" / studio.saved_id
+    assert json.loads((folder / "meta.json").read_text())["plans"] == [
+        {"n": 1, "shapes": 0}, {"n": 2, "shapes": 1}]
+    text = (folder / "plan.txt").read_text()
+    assert "Plan 2, written after 1 shapes" in text and "Second plan." in text
+
+
+def test_a_planning_turn_without_a_plan_still_paints(tmp_path):
+    steps = [
+        [assistant_message("I will paint a square.")],
+        [paint([rect(0, 0, 100, 100)], "c1")],
+        [finish("c2")],
+    ]
+    studio, model, events = make_studio(tmp_path, steps, planning=True)
+
+    async def go():
+        await studio.start("no plan written")
+        await _wait(studio)
+    run(go)
+
+    assert studio.state == "finished" and len(studio.ctx.canvas) == 1
+    assert studio.ctx.plans == []
+    assert any("didn't write a plan" in e["text"] for e in types(events, "activity"))
+
+    assert model.calls[1].input[-1] == {"role": "user", "content": "Now paint it."}
+
+
+def test_planning_only_happens_at_the_start_not_on_keep_going(tmp_path):
+    steps = [
+        [plan("c1")],
+        [paint([rect(0, 0, 100, 100)], "c2")],
+        [paint([rect(0, 0, 50, 50)], "c3")],
+        [finish("c4")],
+    ]
+    studio, model, _ = make_studio(tmp_path, steps, planning=True, shape_budget=1)
+
+    async def go():
+        await studio.start("pause then carry on")
+        await _wait(studio)
+        assert studio.state == "paused"
+        await studio.keep_going(shapes=5)
+        await _wait(studio)
+    run(go)
+
+    assert studio.state == "finished" and len(model.calls) == 4
+    assert [c.model_settings.tool_choice for c in model.calls] == ["plan", None, None, None]
+    assert len(studio.ctx.plans) == 1
+
+
+def test_an_empty_plan_is_refused(tmp_path):
+    steps = [[plan("c1", "  ")], [plan("c2", "A real plan.")], [finish("c3")]]
+    studio, model, events = make_studio(tmp_path, steps, planning=True)
+
+    async def go():
+        await studio.start("empty plan")
+        await _wait(studio)
+    run(go)
+
+    err = next(e for e in types(events, "activity") if e.get("key") == "c1" and e.get("status") == "error")
+    assert "plan is empty" in err["result"]
+    assert [p.text for p in studio.ctx.plans] == ["A real plan."]
+    # No extra nudge after a refused plan: the error already says what to do.
+    assert not any(i == {"role": "user", "content": "Now paint it."} for i in model.calls[1].input)

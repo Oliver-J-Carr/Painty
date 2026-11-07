@@ -140,7 +140,11 @@ function addEntry({ kind, text, detail, status, tool, key, image }) {
   li.dataset.status = status || "done";
   if (tool) li.dataset.tool = tool;
   li.appendChild(el("p", "entry-text", text || ""));
-  if (detail) li.appendChild(el("p", "entry-detail", detail));
+  if (detail && tool === "plan") { // the whole plan, folded away until opened
+    const plan = el("details", "entry-plan");
+    plan.append(el("summary", "", "Show the plan"), el("p", "", detail));
+    li.appendChild(plan);
+  } else if (detail) li.appendChild(el("p", "entry-detail", detail));
   if (image) li.appendChild(feedImage(image, text || "Picture", text || ""));
   feedList.appendChild(li);
   $("feed-empty").hidden = true;
@@ -595,8 +599,8 @@ async function paintAgain({ prompt, reference, benchmark: card, shape, settings,
     toast("Painty is busy. Wait for this painting to end, or stop it, then try again.");
     return;
   }
-  // Older paintings predate the grid modes (they had the ruler frame) and the exemplar.
-  const wanted = { grid: "frame", exemplar: false, ...(settings || {}) };
+  // Older paintings predate the grid modes (they had the ruler frame), the exemplar and planning.
+  const wanted = { grid: "frame", exemplar: false, planning: false, ...(settings || {}) };
   const gone = wanted.model && !configuredModels.includes(wanted.model) ? wanted.model : null;
   const values = {};
   for (const input of dialog.querySelectorAll("[data-setting]")) {
@@ -667,7 +671,9 @@ function setupSettings(options, values) {
   const model = $("set-model");
   model.replaceChildren(...options.models.map((m) => new Option(m, m)));
   const effort = $("set-effort");
-  effort.replaceChildren(...options.reasoning_efforts.map((v) => new Option(v ? v[0].toUpperCase() + v.slice(1) : "Model default", v)));
+  const effortName = (v) => (v ? v[0].toUpperCase() + v.slice(1) : "Model default");
+  effort.replaceChildren(...options.reasoning_efforts.map((v) => new Option(effortName(v), v)));
+  $("set-planning-effort").replaceChildren(...options.reasoning_efforts.map((v) => new Option(effortName(v), v)));
   $("set-grid").replaceChildren(...options.grids.map((v) => new Option(GRID_NAMES[v] || v, v)));
   for (const [name, [lo, hi]] of Object.entries(options.limits)) {
     const input = settingInput(name);
@@ -723,9 +729,10 @@ function readSettings() {
 }
 
 // Looks only matter when Painty can see the canvas, and the dialog says so. A benchmark
-// card holds both budgets.
+// card holds both budgets. The planning effort only matters with planning on.
 function syncLooksInput() {
   const blind = !settingInput("vision").checked;
+  settingInput("planning_effort").disabled = settingsLocked || !settingInput("planning").checked;
   settingInput("shape_budget").disabled = settingsLocked || Boolean(ownBudget);
   settingInput("look_budget").disabled = settingsLocked || Boolean(ownBudget) || blind;
   $("looks-note").hidden = !blind;
@@ -739,7 +746,7 @@ function lockSettings(locked) {
 
 document.addEventListener("change", (ev) => {
   if (!ev.target.dataset?.setting) return;
-  if (ev.target.dataset.setting === "vision") syncLooksInput();
+  if (["vision", "planning"].includes(ev.target.dataset.setting)) syncLooksInput();
   if (rerunning && dialog.contains(ev.target)) return; // saved when Paint is pressed
   send({ type: "settings", settings: readSettings() });
 });
@@ -1199,6 +1206,8 @@ function showDetail(m) {
     ["Vision", s.vision ? "On" : "Off"],
     ["Grid", GRID_NAMES[s.grid || "frame"] || s.grid], // older paintings had the ruler frame
     ["Exemplar", s.exemplar ? "Shown" : "Not shown"],
+    ["Planning", s.planning ? `On (effort: ${s.planning_effort || "default"}), `
+      + `${(m.plans || []).length} plan${(m.plans || []).length === 1 ? "" : "s"} written` : "Off"],
     ["Shapes", `${m.shapes_used} of ${m.shapes_budget}`],
     ["Looks", `${m.looks_used} of ${m.looks_budget}`],
     ["Top-ups", String(m.top_ups)],
@@ -1225,6 +1234,7 @@ function showDetail(m) {
     ...(m.benchmark ? [["Benchmark card", "benchmark.json"]] : []),
     ...(m.benchmark_score ? [["Score diff", "benchmark-diff.png"]] : []),
     ...(m.exemplar_sheets || []).map((file, i) => [`Exemplar ${i + 1}`, file]),
+    ...(m.plans?.length ? [["Plan", "plan.txt"]] : []),
     ["Shapes (JSON)", "shapes.json"], ["Details", "meta.json"]];
   for (const [label, file] of fileLinks) {
     const a = el("a", "", label);

@@ -230,6 +230,9 @@ button, input, select, textarea { font: inherit; }
 .entry-text { margin: 0; font-weight: 600; }
 .entry[data-tool="paint"] .entry-text, .entry[data-tool="finish"] .entry-text { font-variation-settings: "CASL" 1; }
 .entry-detail { margin: 2px 0 0; color: var(--graphite-soft); font-size: 13px; }
+.entry-plan { margin: 4px 0 0; font-size: 13px; color: var(--graphite-soft); }
+.entry-plan summary { cursor: pointer; color: var(--graphite); }
+.entry-plan p { margin: 4px 0 0; white-space: pre-wrap; font-variation-settings: "CASL" 1; }
 .entry-result { margin: 4px 0 0; font-size: 13px; color: var(--graphite-soft); white-space: pre-wrap; }
 .entry[data-status="running"] .entry-text::after { content: " …"; color: var(--cadmium-deep); }
 .entry[data-status="error"] .entry-result { color: var(--vermilion); }

@@ -83,6 +83,13 @@ class Stage:
 
 
 @dataclass
+class Plan:
+    """One plan the agent wrote, and how many shapes were on the canvas when it did."""
+    text: str
+    shapes: int
+
+
+@dataclass
 class Look:
     """One look: exactly what the agent saw, and how many shapes were on the canvas."""
     png: bytes
@@ -103,6 +110,7 @@ class PaintyContext:
     budget: Budget = field(default_factory=lambda: Budget(0, 0))
     looks: list[Look] = field(default_factory=list)    # what the agent saw, in order
     stages: list[Stage] = field(default_factory=list)  # each paint call that painted, in order
+    plans: list[Plan] = field(default_factory=list)    # each plan it wrote (planning on), in order
     tokens: Tokens = field(default_factory=Tokens)      # every model call so far, all segments
     finish_title: str | None = None    # set by the finish tool
     finish_note: str = ""

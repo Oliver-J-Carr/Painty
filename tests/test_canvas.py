@@ -466,6 +466,12 @@ def test_portrait_agent_view_has_a_ruler_down_its_long_side():
     ({"model": "not-offered"}, "model", "m1"),
     ({"model": "m2"}, "model", "m2"),
     ({"reasoning_effort": "extreme"}, "reasoning_effort", "medium"),
+    ({}, "planning", False),
+    ({"planning": 1}, "planning", True),
+    ({}, "planning_effort", "high"),
+    ({"planning_effort": "low"}, "planning_effort", "low"),
+    ({"planning_effort": ""}, "planning_effort", ""),
+    ({"planning_effort": "extreme"}, "planning_effort", "high"),
 ])
 def test_settings_are_clamped_and_validated(raw, field, expected):
     assert getattr(clean(raw, ("m1", "m2")), field) == expected
