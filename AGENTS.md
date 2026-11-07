@@ -111,7 +111,7 @@ docker image prune
 - Tool docstrings, `app/prompts/*.md` and the problem messages from `parse_shape` and `check_shape` are read by the model. Treat vague wording as a bug. The `Shape` model's field descriptions are internal only.
 - Tools return errors as `"Error: ..."` strings instead of raising, so the model can recover.
 - Every successful state-changing tool must change the context (canvas or budget), emit its event (`shapes` or `look`) and call `send_budget()`.
-- Tool results are plain English and always end with what is left in the budget.
+- Tool results are plain English and always say what is left in the budget. Paint results then end with the canvas record (`tools.canvas_record`): what is on the canvas, batch by batch, from the agent's own notes.
 - Never use module-level mutable state for anything about a drawing. Settings and gallery are app-wide on purpose (on `app.state`).
 - Prompts longer than a few lines go in `app/prompts/*.md`. Short inline prompts use implicit string concatenation, not triple-quoted strings (avoids stray indentation).
 - Version lives in three places, keep them in sync: `app/__init__.py`, `pyproject.toml`, and the image tag in `compose.yaml`.

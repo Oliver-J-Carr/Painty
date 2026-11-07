@@ -80,6 +80,7 @@ class Stage:
     first: int
     last: int
     note: str = ""
+    partial: bool = False  # a problem in the batch stopped it before its end
 
 
 @dataclass

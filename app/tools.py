@@ -34,6 +34,22 @@ GRID_RESULT = {
 }
 
 
+LEDGER_NOTE = 120  # characters of each batch's note in the record of what is on the canvas
+
+
+def canvas_record(c: PaintyContext) -> str:
+    """What is on the canvas, batch by batch in paint order, from the agent's own
+    notes. Every paint result ends with it, so the latest record of what is done
+    is always the most recent thing in the conversation."""
+    lines = []
+    for st in c.stages:
+        span = f"shape {st.first}" if st.first == st.last else f"shapes {st.first} to {st.last}"
+        note = st.note if len(st.note) <= LEDGER_NOTE else st.note[:LEDGER_NOTE].rstrip() + "…"
+        cut = " (cut short by a problem)" if st.partial else ""
+        lines.append(f"- {span}: {note or '(no note)'}{cut}")
+    return "On the canvas so far, in paint order (from your notes):\n" + "\n".join(lines)
+
+
 def budget_left(c: PaintyContext) -> str:
     b = c.budget
     text = f"Shapes left: {b.shapes_left} of {b.shapes_total}."
@@ -103,7 +119,10 @@ async def paint(ctx: Ctx, shapes: list[str], note: str) -> str:
 
     Args:
         shapes: The shapes to paint, one string each, bottom layer first.
-        note: A few words on what this batch adds, e.g. "sky and sea" or "shading under the chin".
+        note: Which parts of the picture this batch paints, naming each one, e.g.
+            "sky and sea" or "left ear, right ear, inner ears". The viewer sees it, and
+            every paint result lists your notes back to you as the record of what is
+            on the canvas.
     """
     c = ctx.context
     b = c.budget
@@ -129,7 +148,8 @@ async def paint(ctx: Ctx, shapes: list[str], note: str) -> str:
         first = len(c.canvas) + 1
         painted = c.canvas.add([s for _, s in good], [t for t, _ in good])
         b.shapes_used += len(painted)
-        c.stages.append(Stage(first, first + len(painted) - 1, (note or "").strip()[:MAX_NOTE]))
+        c.stages.append(Stage(first, first + len(painted) - 1, (note or "").strip()[:MAX_NOTE],
+                              partial=bool(errors)))
         await c.emit({"type": "shapes", "key": ctx.tool_call_id,
                       "shapes": [{"n": p.n, "svg": p.svg} for p in painted]})
         await c.send_budget()
@@ -146,6 +166,7 @@ async def paint(ctx: Ctx, shapes: list[str], note: str) -> str:
         result = f"Painted {len(painted)} ({span} on the canvas). {budget_left(c)}"
     if notes:
         result += "\nNotes: " + "; ".join(notes) + "."
+    result += "\n" + canvas_record(c)
     if b.shapes_left == 0:
         result += "\nYour shape budget is used up, so the drawing pauses here."
     return result

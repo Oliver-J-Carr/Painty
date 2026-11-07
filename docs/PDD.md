@@ -157,7 +157,7 @@ A v0.3.2 tiger had clumsy body stripes. They were trails like `trail 274 314 26@
 
 | Tool | Arguments | What it does |
 |---|---|---|
-| `paint` | `shapes` (ordered list of shape notation strings, bottom layer first), `note` | Validates and paints a batch, up to any bad shape. Returns what was painted, any problems and what's left in the budget |
+| `paint` | `shapes` (ordered list of shape notation strings, bottom layer first), `note` (the parts this batch paints) | Validates and paints a batch, up to any bad shape. Returns what was painted, any problems, what's left in the budget and the canvas record (section 7) |
 | `look` | `focus` (what it wants to check) | Returns a PNG of the canvas to the same model. Vision on only |
 | `plan` | `plan` (text: composition, parts in paint order, overlaps, stages) | Records the agent's plan. Costs no budget. Planning on only (section 5.7) |
 | `finish` | `title`, `note` | Ends the drawing. The painting is saved to the gallery |
@@ -274,7 +274,8 @@ A drawing copies the settings when it starts, so changing them never changes the
 - The instructions describe the drawing's own canvas: its shape, width, height, corners and centre.
 - The system prompt (`app/prompts/painter.md`) teaches the paint system, coordinates, layering, budget, a working method (plan in pixels, paint back to front in stages, look after each main stage but not after the final touches) and to always end with `finish`. It has a vision-on and a vision-off section.
 - The agent works on its own and never asks questions.
-- Each `paint` call carries a short `note`, shown in the feed, so viewers can follow its plan.
+- Each `paint` call carries a short `note` naming the parts of the picture it paints, shown in the feed so viewers can follow the plan.
+- **The canvas record.** Every paint result ends with a list of what is on the canvas, batch by batch in paint order, from the agent's own notes (`shapes 1 to 3: sky and sea`, and `(cut short by a problem)` when a bad shape stopped a batch; long notes shortened to 120 characters). Before it, the agent's only record of what was done was its earlier paint calls, scattered back through the history as raw shape lines, so working out which parts were finished meant reading them back. The record puts it in one place, as the most recent thing in the conversation. It is built from `ctx.stages`, adds a line per batch to each result (a few hundred tokens over a drawing, all cached after their first call), and is always on, not a toggle. The gallery keeps the plain notes.
 - Instructions are dynamic, so the budget totals are right after a "keep going" top-up, but they never change within a run. The prompt cache only reuses an exact prefix of each request, and the instructions come before the whole history, so live counts there (an earlier "right now" status line) made every call miss the cache. Live counts are in the tool results instead.
 - Each drawing's id is sent as the `prompt_cache_key`, so all its calls, across keep going segments, are routed to the same cache.
 
@@ -421,3 +422,4 @@ Endings: `finished` (the agent called finish), `ended` (it stopped without calli
 | 6 Nov 2026 | Benchmark budgets fixed per card and locked: three times the card's shapes plus 10 (rounded up to 5) and 3 looks, no top-ups; vision stays a choice |
 | 6 Nov 2026 | Keep going amounts typed on the paused card each time, not fixed settings; a refused look pauses to ask for more looks (not in a benchmark); the settings drawer removed |
 | 7 Nov 2026 | Optional planning: a forced first turn of the same agent calls a `plan` tool at its own reasoning effort; the plan stays in the conversation, can be revised, and is saved as `plan.txt`. Default off, for comparison |
+| 7 Nov 2026 | Every paint result ends with the canvas record, built from the agent's notes; `note` now names the parts each batch paints |

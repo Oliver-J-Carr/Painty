@@ -1171,3 +1171,47 @@ def test_an_empty_plan_is_refused(tmp_path):
     assert [p.text for p in studio.ctx.plans] == ["A real plan."]
     # No extra nudge after a refused plan: the error already says what to do.
     assert not any(i == {"role": "user", "content": "Now paint it."} for i in model.calls[1].input)
+
+
+# ------------------------------------------------------------------ the canvas record
+
+def test_every_paint_result_lists_what_is_on_the_canvas_from_the_notes(tmp_path):
+    steps = [
+        [paint([rect(0, 0, 512, 300, "#0000ff"), rect(0, 300, 512, 512, "#00aa00")], "c1", note="sky and grass")],
+        [paint([rect(200, 200, 300, 300, "#ff0000")], "c2", note="red barn")],
+        [paint([rect(220, 220, 240, 240, "#ffffff"), "ellips 0 0 9 9 #fff"], "c3", note="barn windows")],
+        [finish("c4")],
+    ]
+    studio, _, events = make_studio(tmp_path, steps)
+
+    async def go():
+        await studio.start("a barn")
+        await _wait(studio)
+    run(go)
+
+    results = {e["key"]: e["result"] for e in types(events, "activity")
+               if e.get("kind") == "tool" and e.get("result")}
+    assert results["c1"].endswith(
+        "On the canvas so far, in paint order (from your notes):\n- shapes 1 to 2: sky and grass")
+    assert results["c2"].endswith("- shapes 1 to 2: sky and grass\n- shape 3: red barn")
+    # A batch stopped by a bad shape says so, and only what landed is listed.
+    assert results["c3"].endswith("- shape 3: red barn\n- shape 4: barn windows (cut short by a problem)")
+    # The record is not a note the gallery keeps: stages keep the plain note.
+    meta = json.loads((tmp_path / "gallery" / studio.saved_id / "meta.json").read_text())
+    assert [st["note"] for st in meta["stages"]] == ["sky and grass", "red barn", "barn windows"]
+
+
+def test_the_canvas_record_shortens_long_notes(tmp_path):
+    long_note = "a very long description " * 20
+    steps = [[paint([rect(0, 0, 100, 100)], "c1", note=long_note)], [finish("c2")]]
+    studio, _, events = make_studio(tmp_path, steps)
+
+    async def go():
+        await studio.start("long note")
+        await _wait(studio)
+    run(go)
+
+    result = next(e["result"] for e in types(events, "activity") if e.get("key") == "c1" and e.get("result"))
+    line = result.splitlines()[-1]
+    assert line.startswith("- shape 1: a very long description") and line.endswith("…")
+    assert len(line) < 140
