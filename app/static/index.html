@@ -174,6 +174,7 @@
           <label>Model <select data-setting="model" id="set-model"></select></label>
           <label>Reasoning effort <select data-setting="reasoning_effort" id="set-effort"></select></label>
         </div>
+        <button type="button" class="ghost-dark browse-models" id="browse-models">Browse OpenRouter models…</button>
         <label class="toggle"><input type="checkbox" data-setting="vision" id="set-vision"> Let Painty see the canvas</label>
         <label class="toggle"><input type="checkbox" data-setting="exemplar" id="set-exemplar"> Show Painty the exemplar sheet first</label>
         <label class="toggle"><input type="checkbox" data-setting="planning" id="set-planning"> Let Painty write a plan before painting</label>
@@ -198,6 +199,28 @@
         <button type="submit" class="primary" id="paint" disabled>Paint</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog class="dialog model-browser" id="model-browser" aria-labelledby="browser-title">
+    <div class="browser-inner">
+      <div class="drawer-head">
+        <h2 id="browser-title">OpenRouter models</h2>
+        <button type="button" class="close" id="close-browser" aria-label="Close">×</button>
+      </div>
+      <p class="rerun-note" id="browser-key-note" hidden>You can browse and add models, but they can't paint until <code>OPENROUTER_API_KEY</code> is set in <code>.env</code>.</p>
+      <div class="browser-filters">
+        <input type="search" id="browser-search" placeholder="Search, for example “gemma 31b”" aria-label="Search models">
+        <label>Sort <select id="browser-sort">
+          <option value="newest">Newest</option>
+          <option value="cheapest">Cheapest</option>
+          <option value="name">Name</option>
+        </select></label>
+        <label class="toggle"><input type="checkbox" id="browser-free"> Free only</label>
+        <label class="toggle"><input type="checkbox" id="browser-added"> Added only</label>
+      </div>
+      <p class="field-help" id="browser-status" role="status"></p>
+      <ul class="model-list" id="browser-list"></ul>
+    </div>
   </dialog>
 
   <!-- Gallery overlay -->

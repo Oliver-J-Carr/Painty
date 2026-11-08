@@ -58,6 +58,8 @@ class SaveRequest:
     looks: list[Look] = field(default_factory=list)
     stages: list[Stage] = field(default_factory=list)
     plans: list[Plan] = field(default_factory=list)
+    plan_forced: bool | None = None  # planning on: was the planning turn forced?
+    billed_usd: float | None = None  # what OpenRouter charged (native models don't say)
     top_ups: int = 0
     input_tokens: int = 0
     cached_tokens: int = 0      # part of input_tokens, served from the prompt cache
@@ -150,6 +152,9 @@ class Gallery:
             # Each plan the agent wrote (the text is in plan.txt), and how many shapes
             # were on the canvas then. Empty when planning was off; older paintings have none.
             "plans": [{"n": i, "shapes": p.shapes} for i, p in enumerate(req.plans, start=1)],
+            # False when the model refused a forced tool call, so only the prompt asked
+            # it to plan. Missing when planning was off, and on older paintings.
+            **({"plan_forced": req.plan_forced} if req.plan_forced is not None else {}),
             "top_ups": req.top_ups,
             # How the model wrote its shapes. Older paintings (JSON shapes) have no
             # shape_format and no shapes.txt.
@@ -160,6 +165,8 @@ class Gallery:
             "cache_write_tokens": req.cache_write_tokens,
             "output_tokens": req.output_tokens,
             "reasoning_tokens": req.reasoning_tokens,
+            # What OpenRouter charged. Missing on native models and older paintings.
+            **({"billed_usd": round(req.billed_usd, 6)} if req.billed_usd is not None else {}),
             "version": version,
         }
         (folder / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")

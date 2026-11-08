@@ -19,7 +19,8 @@ from . import __version__
 from .config import settings
 from .benchmark import CARDS, card_png, card_text
 from .exemplar import SHEETS, exemplar_text, exemplar_views
-from .gallery import Gallery
+from .gallery import Gallery, settings_dict
+from .model_library import CatalogueError, ModelLibrary
 from .pricing import cost
 from .settings_store import SettingsStore
 from .studio import Studio
@@ -40,7 +41,8 @@ app.mount("/gallery", StaticFiles(directory=GALLERY_DIR, check_dir=False), name=
 
 # App-wide on purpose: every tab shares the settings and the gallery.
 # Everything about a drawing lives in its connection's Studio.
-app.state.store = SettingsStore(settings.data_dir / "settings.json", settings.models)
+app.state.library = ModelLibrary(settings.data_dir / "models.json", settings.models, settings.prices)
+app.state.store = SettingsStore(settings.data_dir / "settings.json", app.state.library.models())
 app.state.gallery = Gallery(GALLERY_DIR)
 
 
@@ -94,11 +96,63 @@ async def gallery_list() -> list[dict]:
     """Every painting's meta, newest first, each with its estimated cost at today's
     prices (worked out here, never saved, so a price change reaches old paintings too)."""
     items = app.state.gallery.list()
+    prices = app.state.library.prices()
     for m in items:
         m["cost"] = cost((m.get("settings") or {}).get("model", ""), m.get("input_tokens", 0),
-                         m.get("cached_tokens", 0), m.get("output_tokens", 0), settings.prices,
-                         m.get("cache_write_tokens", 0))
+                         m.get("cached_tokens", 0), m.get("output_tokens", 0), prices,
+                         m.get("cache_write_tokens", 0), m.get("billed_usd"))
     return items
+
+
+class ModelId(BaseModel):
+    id: str
+
+
+def _model_list() -> dict:
+    """The models on offer after a change, with the settings (the chosen one may have gone)."""
+    library, store = app.state.library, app.state.store
+    store.set_models(library.models())
+    return {"models": list(library.models()), "added": library.offered(),
+            "settings": settings_dict(store.current)}
+
+
+@app.get("/api/models/openrouter")
+async def openrouter_models() -> dict:
+    """OpenRouter's models that Painty can use, and which of them are on offer."""
+    try:
+        models = await app.state.library.catalogue()
+    except CatalogueError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    return {"models": models, "added": app.state.library.offered(),
+            "has_key": bool(settings.openrouter_api_key)}
+
+
+@app.post("/api/models")
+async def add_model(body: ModelId) -> dict:
+    """Offer a model from OpenRouter's catalogue, with its price."""
+    try:
+        await app.state.library.add(body.id)
+    except CatalogueError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except OSError as exc:
+        log.warning("could not save the model list: %s", exc)
+        raise HTTPException(500, "Couldn't save that. Check that DATA_DIR is writable.") from exc
+    return _model_list()
+
+
+@app.delete("/api/models/{model_id:path}")
+async def remove_model(model_id: str) -> dict:
+    """Stop offering a model added on screen. It keeps its price, for older paintings."""
+    try:
+        removed = app.state.library.remove(model_id)
+    except OSError as exc:
+        log.warning("could not save the model list: %s", exc)
+        raise HTTPException(500, "Couldn't save that. Check that DATA_DIR is writable.") from exc
+    if not removed:
+        raise HTTPException(404, f"{model_id} wasn't added here. Models in PAINTY_MODELS stay on offer.")
+    return _model_list()
 
 
 class Favourite(BaseModel):
@@ -125,7 +179,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
     async def send(event: dict) -> None:
         await ws.send_json(event)
 
-    studio = Studio(send, app.state.store, app.state.gallery)
+    studio = Studio(send, app.state.store, app.state.gallery, library=app.state.library)
     await send(studio.hello())
 
     try:

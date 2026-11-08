@@ -242,6 +242,34 @@ Without it, the only planning instruction is one line ("Before painting, plan th
 - **Revisions allowed.** The painter keeps the `plan` tool and may call it again if the plan itself turns out wrong. Each revision is saved with how many shapes were on the canvas then. Only the start segment's first turn is forced; keep going never re-plans by itself.
 - **A turn without a plan doesn't stop the drawing.** If the model answers in text, it is told "Now paint it." and paints without a plan, and the feed says so. An empty plan is refused with an error, and it may plan again.
 - **Held-out tests.** The prompt and the tool's wording stay general about layering. They never name the specific subjects used to test whether planning fixes layering mistakes, so a fix can't come from the wording itself.
+- **Models that refuse forced tool calls.** Claude Sonnet 5.5 and Opus 5.5 answer a forced `tool_choice` with a 400, on every host tried, though the OpenRouter catalogue lists `tool_choice` for Sonnet 5.5, so it can't be known in advance. A 400 that mentions `tool_choice` on the planning turn repeats the turn unforced, with only the prompt's "your first call is `plan`" asking for it. The feed says so, and `plan_forced` in `meta.json` records it, because a requested plan and a forced plan aren't quite the same experiment.
+
+### 5.8 Models through OpenRouter
+
+OpenRouter makes hundreds of models available through one API, including Claude, Gemma and Qwen. That widens the research question from OpenAI's models to almost any multimodal model.
+
+**One rule picks the route: a model id with a `/` in it goes through OpenRouter, and anything else goes direct to OpenAI.** Every OpenRouter id has one and no OpenAI id does. A model stays one plain string, so the gallery, colours, filters, Paint again and saved settings all work unchanged. A separate `provider` setting would have touched all of them to say the same thing. `gpt-6-luna` and `openai/gpt-6-luna` count as separate models, which allows a comparison of the two routes.
+
+**Same framework, same API shape.** The SDK's `OpenAIResponsesModel` runs with an `AsyncOpenAI` client pointed at OpenRouter's Responses API (`app/providers.py`). OpenRouter's `function_call_output` takes images, so `look`, the first message and the history needed no changes. Rejected:
+
+- **Chat Completions or LiteLLM.** The SDK's Chat Completions converter strips images from tool results by default, so `look` could quietly return nothing.
+- **A model name string.** The SDK reads the prefix itself: it would strip `openai/` and refuse `anthropic/`. So OpenRouter models are passed as `Model` objects.
+- **`set_default_openai_client`.** It would also move tracing and the native models.
+
+**Tested live on 8 Nov 2026** (a few cents, through the real SDK path). A hidden random code in an image returned by a tool was read back by Gemma 4 31B, Gemma 4 26B A4B, Claude Haiku 5.5 and `openai/gpt-6-luna`. Qwen 3.8 Flash read it with 1 of 6 characters wrong, and read it correctly in later tests of images in the first message. Gemma, Qwen and Haiku all ran whole paintings with planning, a look and keep going, replaying their reasoning. Sonnet 5.5 painted but returned no reasoning items, so replaying its reasoning is untested.
+
+**The model library (`app/model_library.py`).** Prices and models were `.env` variables, which doesn't scale to hundreds. A browser in the New painting dialog lists OpenRouter's public catalogue (`GET /api/v1/models`, no key needed, cached for an hour), and adding a model saves it and its price to `DATA_DIR/models.json`.
+
+- Only models with image input, `tools` and the Responses endpoint are listed. That excludes `:batch` variants and text-only models, since looks, the exemplar and references need images. 208 of 461 qualify today. Negative prices mark routers such as `openrouter/auto`, which are left out because a comparison needs a known model.
+- `PAINTY_MODELS` still comes first, so the default doesn't change, and `PAINTY_PRICE_*` overrides the catalogue's price.
+- Removing a model hides it but keeps its price, so older paintings stay priced.
+- Prices refresh with the catalogue, in line with "costs use the current prices".
+
+**Billed cost.** OpenRouter returns `usage.cost` on every response, kept through `preserve_raw_usage` and added up in the `on_llm_end` hook as `billed_usd`. The estimate from listed prices matched the bill for Qwen, Haiku and Sonnet, to the cent, cache writes included, but not for models whose hosts charge different prices: a Gemma 4 31B painting estimated at $0.0096 was billed $0.0056, and its hosts charge $0.10 to $0.75 per million input tokens. So billed is shown when present. The estimate stays for native models, whose API doesn't report a charge.
+
+**Caching.** Anthropic's cache is opt-in, so `anthropic/` models send a top-level `cache_control`. Gemma and Qwen cache without asking. The existing `prompt_cache_key` is also OpenRouter's fallback for sticky routing, keeping a drawing on one host. On Claude, going from the planning turn to the painter misses the cache and pays one extra write. Gemma's cache hits are patchy.
+
+**One tool at a time.** The catalogue doesn't list `parallel_tool_calls` for any of the models tested. No model has sent two calls in one turn so far, but paint order is the picture, so the runner's `max_function_tool_concurrency=1` runs any such calls in order. `provider.require_parameters` is deliberately not set, because it could leave no host to route to.
 
 ## 6. Budgets and limits
 
@@ -305,6 +333,7 @@ idle --paint--> painting --finish--------> finished (saved)
 - **Meters** for shapes (bar) and looks (dots).
 - **Activity feed** (permanent right column): every batch with its note and shape counts, every look with a thumbnail of exactly what the agent saw (click to enlarge), errors, and the finish.
 - **Paused card** asking how many shapes and looks to add (looks hidden when painting blind), with Keep going and Finish here. **Finished card** with title, note, shape and token counts, and a link to the gallery.
+- **Model browser.** A Browse OpenRouter models button by the model choice opens a dialog over the New painting dialog: search (every word must match the name or id), Free only and Added only toggles, and sorting by newest, cheapest or name. Each row has the prices, the context length and Add or Remove. Adding a model also chooses it. The model choice groups models into OpenAI (direct) and OpenRouter. Free models carry a note about rate limits and retained prompts, because reference images go with them.
 - **Settings where you use them.** The New painting dialog holds the model, reasoning effort, vision, the exemplar toggle, planning and its effort, the grid mode and the drawing's budgets, so a comparison run is set up in the same place it's asked for. The looks field is greyed out with vision off. There is no separate settings drawer: its last job, the keep going top-ups, moved onto the paused card. The settings are one saved set: every change is saved straight away and is remembered for the next painting, and the dialog sends its values again just before `paint`, so a drawing starts with exactly what was shown.
 - **New painting dialog.** The top bar has a New painting button (Stop while painting), then a short status line saying what Painty is doing (thinking, painting, looking) or that the connection dropped; the feed has the detail. The button opens a dialog with the prompt (a textarea: Enter paints, Shift+Enter starts a new line), an optional reference image (choose, drop or paste; shown cropped to the canvas) and the canvas shape. It replaced the single-line prompt box in the top bar, which had no room for more, and leaves space for style suggestions. The canvas choice is kept until the page reloads; the prompt and image are cleared once a painting starts.
 - **Paint again.** The finished card and each gallery painting have a Paint again button. It opens the New painting dialog filled in with that painting's prompt, reference image, canvas shape and painter and budget settings (the starting budgets, not the top-ups), rather than painting straight away, so one thing can be changed for a comparison. The filled-in settings are only a suggestion until Paint is pressed: closing the dialog clears the prompt and image and puts the saved settings back. Paintings from before grid modes and the exemplar are re-run with the ruler frame and no exemplar, as they were made. A model no longer in `PAINTY_MODELS` is swapped for the current one, and the dialog says so. Front end only: it sends the same `settings` and `paint` messages as a new painting, and the gallery's `reference.png` is already canvas-sized, so it isn't cropped again.
@@ -333,9 +362,9 @@ Each painting is a folder under `DATA_DIR/gallery` (in the container, the `paint
 - `benchmark.json`: the benchmark card, if the reference was one (section 5.6), for scoring
 - `benchmark-diff.png`: card, painting and difference side by side, with each item's score
 - `stages/stage-N.png`: the canvas after each paint call that painted something (canvas size, no grid). Rendered at save time from the first shapes of the canvas, so painting gets no slower. A look at a blank canvas adds a `stage-0.png`
-- `meta.json`: prompt, title, note, ending, `canvas` (shape, width and height; missing on older paintings, which are 512 × 512 square), `exemplar_sheets` (the exemplar files saved with it; empty when it wasn't shown, missing on older paintings), `reference` (true when a reference image was given; the prompt may then be empty, meaning recreate it), `benchmark` (the card's name, when the reference was a benchmark card; missing otherwise), `benchmark_score` (its score, item by item, worked out when saved and written again by `--rescore`), `favourite` (set from the gallery; missing means no), settings, budgets used, top-ups, `shape_format` (`notation`; missing on paintings from before it, which have no `shapes.txt`), tokens (input with the cached and cache write shares, output with the reasoning share; `cache_write_tokens` is missing on older paintings), time, version, `plans` (each plan's number and how many shapes were on the canvas when it was written; empty when planning was off, missing on older paintings), `stages` (each with its first and last shape, note and the looks taken there) and `looks` (each look's focus and how many shapes it saw). Paintings from before stages have neither
+- `meta.json`: prompt, title, note, ending, `canvas` (shape, width and height; missing on older paintings, which are 512 × 512 square), `exemplar_sheets` (the exemplar files saved with it; empty when it wasn't shown, missing on older paintings), `reference` (true when a reference image was given; the prompt may then be empty, meaning recreate it), `benchmark` (the card's name, when the reference was a benchmark card; missing otherwise), `benchmark_score` (its score, item by item, worked out when saved and written again by `--rescore`), `favourite` (set from the gallery; missing means no), settings, budgets used, top-ups, `shape_format` (`notation`; missing on paintings from before it, which have no `shapes.txt`), tokens (input with the cached and cache write shares, output with the reasoning share; `cache_write_tokens` is missing on older paintings), time, version, `plans` (each plan's number and how many shapes were on the canvas when it was written; empty when planning was off, missing on older paintings), `plan_forced` (planning on only: false when the model refused a forced tool call), `billed_usd` (what OpenRouter charged; missing on native models and older paintings), `stages` (each with its first and last shape, note and the looks taken there) and `looks` (each look's focus and how many shapes it saw). Paintings from before stages have neither
 
-**Estimated cost.** Each painting's page shows a cost, worked out from its tokens and the model's price in `.env` (`PAINTY_PRICE_<MODEL>=input/cached/output`, US dollars per million tokens; `app/pricing.py`).
+**Estimated cost.** Each painting's page shows a cost, worked out from its tokens and the model's price in `.env` (`PAINTY_PRICE_<MODEL>=input/cached/output`, US dollars per million tokens; `app/pricing.py`) or, for a model added from OpenRouter, the catalogue's price. A painting made through OpenRouter shows what was billed instead, with the estimate on hover (section 5.8).
 
 - One variable per model, named from the model (`gpt-6.1-sol` → `PAINTY_PRICE_GPT_6_1_SOL`), so any model in the gallery can be priced, even one no longer offered.
 - Worked out live by `/api/gallery`, never saved in `meta.json`, so older paintings get a cost too. The trade-off: changing a price changes every painting's cost.
@@ -374,6 +403,8 @@ Endings: `finished` (the agent called finish), `ended` (it stopped without calli
 - A side-by-side comparison view. 
 - Deleting gallery items in the app.
 - Local models (for example a vision model on local hardware) through the SDK's model providers.
+- Recording or pinning which OpenRouter host served a drawing. Hosts can differ for open models, and nothing records which one ran.
+- Text-only models from OpenRouter, for blind runs with the exemplar off.
 
 ## 13. Known limitations and risks
 
@@ -381,7 +412,9 @@ Endings: `finished` (the agent called finish), `ended` (it stopped without calli
 - Small models may not follow the coordinate system well; that's part of what's being measured.
 - Some models reject `reasoning.effort`; use "Model default" (in the New painting dialog) if so.
 - The cost is an estimate: it uses today's prices in `.env`, not what was charged at the time, and a model call still running when you press Stop isn't counted.
-- Tracing uploads tool outputs and inputs, including look images and reference images, to OpenAI.
+- Tracing uploads tool outputs and inputs, including look images and reference images, to OpenAI. This includes runs through OpenRouter whenever `OPENAI_API_KEY` is set. Without the key, the SDK skips the upload and logs a warning.
+- Models from OpenRouter vary widely. A weak model may end a drawing early by answering in text (saved with the ending `ended`). Free models have rate limits, and some may retain prompts and images.
+- The native OpenAI route was checked by the scripted tests, not a live run, when OpenRouter support was added.
 - The gallery lives in the `painty-data` Docker volume (the devbox convention for persistent data). `docker compose down -v` would delete it.
 
 ## 14. Decision log
@@ -425,3 +458,4 @@ Endings: `finished` (the agent called finish), `ended` (it stopped without calli
 | 7 Nov 2026 | Optional planning: a forced first turn of the same agent calls a `plan` tool at its own reasoning effort; the plan stays in the conversation, can be revised, and is saved as `plan.txt`. Default off, for comparison |
 | 7 Nov 2026 | Every paint result ends with the canvas record, built from the agent's notes; `note` now names the parts each batch paints |
 | 7 Nov 2026 | Replay: a gallery painting painted again on the studio canvas, shape by shape, with its feed rebuilt; split from `painting.svg` in the browser |
+| 8 Nov 2026 | OpenRouter alongside OpenAI: a `/` in the model id picks the route, through OpenRouter's Responses API with the same SDK. Models and prices added in the app from its catalogue, saved in `models.json`; billed cost recorded; tools run one at a time; planning falls back when a model refuses forced tool calls |

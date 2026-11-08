@@ -65,6 +65,7 @@ class ActivityHooks(RunHooks[PaintyContext]):
 
     async def on_llm_end(self, context, agent, response) -> None:
         context.context.tokens.add(response.usage)
+        context.context.tokens.add_billed(getattr(response, "raw_usage", None))
 
     async def on_tool_start(self, context, agent, tool) -> None:
         args = _args(context)
@@ -91,7 +92,7 @@ class ActivityHooks(RunHooks[PaintyContext]):
 
     async def on_agent_start(self, context: RunContextWrapper[PaintyContext], agent: Agent) -> None:
         c = context.context
-        if agent.model_settings.tool_choice == "plan":  # the planning turn (painter.planning_agent)
+        if isinstance(agent.tool_use_behavior, dict):  # the planning turn: painter.planning_agent's StopAtTools
             effort = c.settings.planning_effort or "model default"
             await c.activity("agent", f"📝 {agent.name} is planning the painting",
                              f"model: {c.settings.model}, planning effort: {effort}")

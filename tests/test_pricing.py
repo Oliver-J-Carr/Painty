@@ -13,6 +13,14 @@ def test_price_var_names_follow_the_model():
     assert price_var("org/Model--x ") == "PAINTY_PRICE_ORG_MODEL_X"
 
 
+def test_a_billed_amount_travels_with_the_estimate():
+    prices = {"PAINTY_PRICE_M": (1.0, 0.1, 2.0, 1.25)}
+    assert cost("m", 1000, 0, 0, prices, billed=0.5)["billed"] == 0.5
+    assert cost("unpriced", 1000, 0, 0, prices, billed=0.5) == {
+        "usd": None, "var": "PAINTY_PRICE_UNPRICED", "billed": 0.5}
+    assert "billed" not in cost("m", 1000, 0, 0, prices)
+
+
 def test_prices_are_read_with_two_three_or_four_numbers():
     assert parse_price("2/0.1/10/2.5") == (2.0, 0.1, 10.0, 2.5)
     assert parse_price("1.25/0.125/10") == (1.25, 0.125, 10.0, 1.25)  # writes cost the same as input

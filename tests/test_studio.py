@@ -10,11 +10,13 @@ import base64
 import dataclasses
 import io
 import json
+from types import SimpleNamespace
 
 import pytest
 from agents import Usage, set_tracing_disabled
 from PIL import Image
 from agents.testing import ScriptedModel, assistant_message, function_call
+from openai import BadRequestError
 from openai.types.responses.response_usage import InputTokensDetails, OutputTokensDetails
 
 from app.gallery import Gallery
@@ -1215,3 +1217,139 @@ def test_the_canvas_record_shortens_long_notes(tmp_path):
     line = result.splitlines()[-1]
     assert line.startswith("- shape 1: a very long description") and line.endswith("…")
     assert len(line) < 140
+
+
+# ------------------------------------------------------------------ models through OpenRouter
+def bad_request(body):
+    """A 400 from a model's host, as the OpenAI client raises it."""
+    response = SimpleNamespace(request=None, status_code=400, headers={})
+    return BadRequestError("Error code: 400 - Provider returned error", response=response, body=body)
+
+
+def provider_error(message):
+    raw = json.dumps({"type": "error", "error": {"type": "invalid_request_error", "message": message}})
+    return bad_request({"message": "Provider returned error", "code": 400,
+                        "metadata": {"raw": raw, "provider_name": "Anthropic"}})
+
+
+def test_a_model_that_refuses_forced_tool_calls_is_asked_to_plan_instead(tmp_path):
+    # Regression: Claude Sonnet 5.5 and Opus 5.5 answer a forced tool_choice with a 400,
+    # which failed the whole drawing before it painted anything.
+    refused = provider_error('tool_choice: type "tool" and "any" are not supported for this model.')
+    steps = [refused, [plan("c0")], [paint([rect(0, 0, 512, 512)], "c1")], [finish("c2")]]
+    studio, model, events = make_studio(tmp_path, steps, planning=True, planning_effort="low")
+
+    async def go():
+        await studio.start("a blue square")
+        await _wait(studio)
+    run(go)
+
+    assert studio.state == "finished" and len(studio.ctx.plans) == 1
+    assert [c.model_settings.tool_choice for c in model.calls] == ["plan", None, None, None]
+    assert model.calls[1].model_settings.reasoning.effort == "low"  # still the planning turn
+    assert any("can't be made to call a tool" in e["text"] for e in types(events, "activity"))
+    meta = json.loads((tmp_path / "gallery" / studio.saved_id / "meta.json").read_text())
+    assert meta["plan_forced"] is False
+
+
+def test_a_forced_plan_is_recorded_and_planning_off_records_nothing(tmp_path):
+    steps = [[plan("c0")], [paint([rect(0, 0, 512, 512)], "c1")], [finish("c2")]]
+    studio, _, _ = make_studio(tmp_path / "on", steps, planning=True)
+    other, _, _ = make_studio(tmp_path / "off", [[paint([rect(0, 0, 512, 512)], "c1")], [finish("c2")]])
+
+    async def go():
+        for s in (studio, other):
+            await s.start("a blue square")
+            await _wait(s)
+    run(go)
+
+    assert json.loads((tmp_path / "on" / "gallery" / studio.saved_id / "meta.json").read_text())["plan_forced"] is True
+    assert "plan_forced" not in json.loads((tmp_path / "off" / "gallery" / other.saved_id / "meta.json").read_text())
+
+
+def test_other_errors_on_the_planning_turn_still_fail_and_say_what_the_host_said(tmp_path):
+    studio, model, events = make_studio(tmp_path, [provider_error("the image is too big")], planning=True)
+
+    async def go():
+        await studio.start("a blue square")
+        await _wait(studio)
+    run(go)
+
+    assert studio.state == "error" and len(model.calls) == 1
+    assert types(events, "status")[-1]["reason"] == "the image is too big"
+    assert any(e.get("detail") == "the image is too big" for e in types(events, "activity"))
+
+
+def test_tool_calls_in_one_turn_run_one_at_a_time_in_order(tmp_path):
+    # Not every OpenRouter host honours parallel_tool_calls=False, and paint order is the picture.
+    steps = [[paint([rect(0, 0, 512, 512, "#ff0000")], "c1"), look("c2")], [finish("c3")]]
+    studio, _, _ = make_studio(tmp_path, steps)
+    events = []
+
+    async def slow_send(event):  # gives another tool the chance to start, if it's allowed to
+        await asyncio.sleep(0.001)
+        events.append(event)
+    studio.send = slow_send
+
+    async def go():
+        await studio.start("a red square")
+        await _wait(studio)
+    run(go)
+
+    steps_seen = [(e["key"], e["status"]) for e in types(events, "activity") if e.get("kind") == "tool"]
+    assert steps_seen[:4] == [("c1", "running"), ("c1", "done"), ("c2", "running"), ("c2", "done")]
+    assert studio.ctx.looks[0].shapes == 1  # the look saw the paint from the same turn
+
+
+def test_what_openrouter_billed_is_added_up_and_saved(tmp_path):
+    steps = [{"output": [paint([rect(0, 0, 512, 512)], "c1")], "raw_usage": {"cost": 0.002}},
+             {"output": [finish("c2")], "raw_usage": {"cost": 0.0005}}]
+    events = []
+
+    async def send(event):
+        events.append(event)
+    # A slash in the id asks for raw usage (providers.provider_settings), as a real run would.
+    store = SettingsStore(tmp_path / "settings.json", ("google/gemma-4-31b-it",))
+    studio = Studio(send, store, Gallery(tmp_path / "gallery"), model=ScriptedModel(steps))
+
+    async def go():
+        await studio.start("a blue square")
+        await _wait(studio)
+    run(go)
+
+    final = types(events, "status")[-1]
+    assert final["cost"]["billed"] == pytest.approx(0.0025)
+    assert "billed" not in final["tokens"]
+    meta = json.loads((tmp_path / "gallery" / final["saved_id"] / "meta.json").read_text())
+    assert meta["billed_usd"] == pytest.approx(0.0025)
+
+
+def test_a_native_model_has_no_billed_amount(tmp_path):
+    studio, _, events = make_studio(tmp_path, [[paint([rect(0, 0, 512, 512)], "c1")], [finish("c2")]])
+
+    async def go():
+        await studio.start("a blue square")
+        await _wait(studio)
+    run(go)
+
+    final = types(events, "status")[-1]
+    assert "billed" not in final["cost"]
+    assert "billed_usd" not in json.loads((tmp_path / "gallery" / final["saved_id"] / "meta.json").read_text())
+
+
+def test_an_openrouter_model_with_no_key_is_refused_clearly(tmp_path, monkeypatch):
+    monkeypatch.setattr(studio_module, "env", dataclasses.replace(studio_module.env, openrouter_api_key=""))
+    events = []
+
+    async def send(event):
+        events.append(event)
+    store = SettingsStore(tmp_path / "settings.json", ("google/gemma-4-31b-it",))
+    studio = Studio(send, store, Gallery(tmp_path / "gallery"))
+    assert studio.hello()["options"]["openrouter_key"] is False
+
+    async def go():
+        await studio.start("a cat")
+    run(go)
+
+    assert "OPENROUTER_API_KEY" in types(events, "error")[0]["text"]
+    assert studio.state == "idle" and studio.task is None

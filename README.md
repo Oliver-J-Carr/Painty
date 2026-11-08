@@ -22,7 +22,7 @@ It's an experiment in agent adaptation. The agent can't fall back on SVG or CSS 
 - **Replay.** Press Replay on a gallery painting and it's painted again on the studio canvas, shape by shape, with each batch's note, every look and any plan appearing in the feed at the point it happened. Speed it up to 2×, 4×, 8× or 16× while it plays (remembered in your browser), or skip to the end at any time.
 - **Keep going.** When the shapes run out, or Painty wants to look with no looks left, the drawing pauses and asks how many shapes and looks to add. Type the amounts and the agent carries on exactly where it stopped.
 - **Watch it work.** Shapes appear live, layer by layer. A feed shows every batch, the agent's notes, and a thumbnail of everything it looked at.
-- **Gallery.** Every finished painting is saved with its prompt, settings, shapes, looks, token use and an estimated cost (from prices you set in `.env`), ready to compare or share. Step through a snapshot of every stage (one per paint call): the stages the agent looked at are marked with an eye, and can switch to exactly what it saw, grid and all. Each model has its own colour, and you can star your favourites. Filters for models, favourites and benchmark paintings stack, and each one's count shows how many paintings it would add to what's showing.
+- **Gallery.** Every finished painting is saved with its prompt, settings, shapes, looks, token use and its cost (billed by OpenRouter, or estimated from prices), ready to compare or share. Step through a snapshot of every stage (one per paint call): the stages the agent looked at are marked with an eye, and can switch to exactly what it saw, grid and all. Each model has its own colour, and you can star your favourites. Filters for models, favourites and benchmark paintings stack, and each one's count shows how many paintings it would add to what's showing.
 - **Full tracing.** Every drawing appears in the OpenAI Traces dashboard.
 
 ## Tech stack
@@ -46,7 +46,7 @@ You need Docker with the Compose plugin and an OpenAI API key.
    ```bash
    cp .env.example .env
    ```
-3. Edit `.env` and set `OPENAI_API_KEY`.
+3. Edit `.env` and set `OPENAI_API_KEY`, `OPENROUTER_API_KEY` or both. See [Models](#models).
 4. Build and start:
    ```bash
    docker compose up -d --build
@@ -63,16 +63,31 @@ These are set on screen and saved between restarts. Changes apply to the next dr
 
 | Setting | Default | What it does |
 |---|---|---|
-| Model | `gpt-5.4-mini` | The model that paints. The choices come from `PAINTY_MODELS` |
+| Model | First of `PAINTY_MODELS` | The model that paints. The choices are `PAINTY_MODELS` plus any you add with **Browse OpenRouter models** |
 | Reasoning effort | Medium | How hard the model thinks before each step. "Model default" leaves it unset |
 | Let Painty see the canvas | On | Gives the agent the `look` tool. Off means it paints blind |
 | Show Painty the exemplar sheet first | On | Sends the two exemplar sheets and their shape text in the first message. See them at `/exemplar.png?sheet=1&grid=frame` and `/exemplar.txt` |
 | Grid on what Painty sees | Ruler frame | How every image Painty sees (its looks, the reference and the exemplar) marks positions: **Ruler frame** (numbered margin round the picture, 60 px bigger than the canvas), **Grid on the image** (lines and small numbers drawn on the picture, exactly canvas-sized) or **None** |
-| Let Painty write a plan before painting | Off | Painty's first turn is forced to call `plan`: composition, parts in paint order with boxes and colours, which parts overlap and which is in front, and stages. The plan costs no shapes, stays in the conversation, can be revised later, and is saved as `plan.txt` in the gallery |
+| Let Painty write a plan before painting | Off | Painty's first turn is forced to call `plan`: composition, parts in paint order with boxes and colours, which parts overlap and which is in front, and stages. The plan costs no shapes, stays in the conversation, can be revised later, and is saved as `plan.txt` in the gallery. Some models, such as Claude Sonnet 5.5 and Opus 5.5, refuse forced tool calls, so they are only asked to plan, and the feed and `plan_forced` in `meta.json` say so |
 | Planning effort | High | The reasoning effort for that planning turn only. Later turns use Reasoning effort. Greyed out while planning is off |
 | Shapes | 60 | Shapes per drawing |
 | Looks | 5 | Looks per drawing |
 | Most shapes in one paint call | 15 | Stops the agent painting everything in one blind batch |
+
+## Models
+
+Painty can run a model two ways, and you can use both side by side:
+
+- **Directly on OpenAI**, for a model id such as `gpt-6-luna`. Needs `OPENAI_API_KEY`.
+- **Through OpenRouter**, for any model id with a `/` in it, such as `google/gemma-4-31b-it` or `anthropic/claude-sonnet-5.5`. Needs `OPENROUTER_API_KEY`.
+
+To add an OpenRouter model, click **Browse OpenRouter models** in the New painting dialog, search, and click **Add**. Its prices come with it, so it needs nothing in `.env`. The browser lists only models that can see images, call tools and use OpenRouter's Responses API. Added models are saved in `models.json` in the data folder.
+
+`gpt-6-luna` and `openai/gpt-6-luna` count as two models, so you can compare the two routes.
+
+For a painting made through OpenRouter, the gallery shows what OpenRouter billed. Other paintings show an estimate from the prices. An estimate can differ from the bill for an open model, because its hosts charge different prices. A price set in `.env` overrides the catalogue's price for estimates.
+
+Without `OPENAI_API_KEY`, traces aren't uploaded, and the SDK logs a warning about it. Set `OPENAI_AGENTS_DISABLE_TRACING=true` to turn tracing off cleanly. With the key set, OpenRouter runs are traced to OpenAI too, images included.
 
 ## Benchmark
 
@@ -116,9 +131,10 @@ The whole painting also gets a global offset, which shows whether the grid mode 
 
 | Variable | Required | Purpose |
 |---|---|---|
-| `OPENAI_API_KEY` | Yes | Calls the models and uploads traces |
-| `PAINTY_MODELS` | No | Models offered in the New painting dialog, comma separated. The first is the default. They must accept image input for vision and reference images |
-| `PAINTY_PRICE_<MODEL>` | No | A model's price, for the cost estimate in the gallery: US dollars per million tokens as `input/cached/output/cache write`, for example `PAINTY_PRICE_GPT_6_1_SOL=2.00/0.10/10.00/2.50`. Leave off the cache write price for models before GPT-5.6, which don't bill writes. `.env.example` has current prices for the default models. The name is the model in capitals with other characters as `_`. Costs use the current prices, so older paintings are priced too |
+| `OPENAI_API_KEY` | One of these two | Calls models directly on OpenAI and uploads traces |
+| `OPENROUTER_API_KEY` | One of these two | Calls models with a `/` in their id through OpenRouter |
+| `PAINTY_MODELS` | No | Models always offered in the New painting dialog, comma separated. The first is the default. They must accept image input for vision and reference images |
+| `PAINTY_PRICE_<MODEL>` | No | A model's price, for the cost estimate in the gallery. Models added from OpenRouter don't need one. US dollars per million tokens as `input/cached/output/cache write`, for example `PAINTY_PRICE_GPT_6_1_SOL=2.00/0.10/10.00/2.50`. Leave off the cache write price for models before GPT-5.6, which don't bill writes. `.env.example` has current prices for the default models. The name is the model in capitals with other characters as `_`. Costs use the current prices, so older paintings are priced too |
 | `TRACE_WORKFLOW_NAME` | No | Name shown for each drawing in OpenAI Traces |
 | `OPENAI_AGENTS_DISABLE_TRACING` | No | Set to `true` to stop sending traces to OpenAI |
 | `DATA_DIR` | No | Where the gallery and saved settings live. Defaults to `data` (`/srv/data` in the container, which is the `painty-data` volume) |

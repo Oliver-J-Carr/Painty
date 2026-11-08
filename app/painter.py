@@ -12,6 +12,7 @@ from openai.types.shared import Reasoning
 from .context import PaintyContext
 from .exemplar import SHEET, SHEETS
 from .prompts import EXEMPLAR, PAINTER_PROMPT, PLANNING, REFERENCE, VISION_OFF, VISION_ON, fill
+from .providers import agent_model, provider_settings
 from .settings_store import StudioSettings
 from .tools import tools_for
 from .view import DEFAULT_GRID, GRID_NOTES
@@ -96,26 +97,31 @@ def build_painter_agent(settings: StudioSettings, model=None,
         name="Painty",
         instructions=_instructions,
         tools=tools_for(settings.vision, settings.planning),
-        model=model or settings.model,
+        model=model or agent_model(settings.model),
         # One tool call per model turn, so paint always lands in the order planned.
         model_settings=ModelSettings(
             parallel_tool_calls=False,
             reasoning=Reasoning(effort=effort) if effort else None,
             extra_args={"prompt_cache_key": cache_key} if cache_key else None,
+            **provider_settings(settings.model),
         ),
         tool_use_behavior=_stop_when_done,
     )
 
 
-def planning_agent(painter: Agent[PaintyContext], settings: StudioSettings) -> Agent[PaintyContext]:
+def planning_agent(painter: Agent[PaintyContext], settings: StudioSettings,
+                   forced: bool = True) -> Agent[PaintyContext]:
     """The painter for its first turn when planning is on: forced to call plan, at
     the planning reasoning effort, and stopping straight after.
 
     Everything sent before the conversation (instructions, tools, the first
     message) is the same as the painter's, so the painter's next call reuses the
     prompt cache this one fills. Only the model settings differ.
+
+    forced=False is for models that refuse a forced tool call. Then only the
+    prompt's "your first call is plan" asks for it.
     """
     effort = settings.planning_effort
-    ms = dataclasses.replace(painter.model_settings, tool_choice="plan",
+    ms = dataclasses.replace(painter.model_settings, tool_choice="plan" if forced else None,
                              reasoning=Reasoning(effort=effort) if effort else None)
     return painter.clone(model_settings=ms, tool_use_behavior=StopAtTools(stop_at_tool_names=["plan"]))

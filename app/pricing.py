@@ -70,17 +70,20 @@ def read_prices(environ: Mapping[str, str]) -> Prices:
 
 
 def cost(model: str, input_tokens: int, cached_tokens: int, output_tokens: int,
-         prices: Prices, cache_write_tokens: int = 0) -> dict:
+         prices: Prices, cache_write_tokens: int = 0, billed: float | None = None) -> dict:
     """The estimated cost in US dollars, with the rates used and the variable they came from.
 
     usd is None when the model has no price; var then says which variable to set.
     Paintings saved before cache writes were counted have none, so theirs are
     charged as plain input: a slight underestimate on models that bill writes.
+    billed is what OpenRouter charged, passed along as it is when there is one. It
+    can differ from the estimate, because a model's hosts charge different prices.
     """
     var = price_var(model)
+    extra = {} if billed is None else {"billed": billed}
     rates = prices.get(var)
     if rates is None:
-        return {"usd": None, "var": var}
+        return {"usd": None, "var": var, **extra}
     total = input_tokens or 0
     cached = max(0, min(cached_tokens or 0, total))
     written = max(0, min(cache_write_tokens or 0, total - cached))
@@ -88,4 +91,4 @@ def cost(model: str, input_tokens: int, cached_tokens: int, output_tokens: int,
     p_in, p_cached, p_out, p_write = rates
     usd = (uncached * p_in + cached * p_cached + written * p_write
            + (output_tokens or 0) * p_out) / 1_000_000
-    return {"usd": round(usd, 6), "rates": list(rates), "var": var}
+    return {"usd": round(usd, 6), "rates": list(rates), "var": var, **extra}

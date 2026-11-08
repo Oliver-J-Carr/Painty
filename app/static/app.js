@@ -224,10 +224,16 @@ function usd(n) {
   return n < 0.0001 ? "under $0.0001" : `$${n.toPrecision(2)}`;
 }
 
-// An estimated cost from the server ({usd, rates, var}), for a details row: the amount, with
-// the rates it used on hover, or which .env variable to set when the model has no price.
+// A cost from the server ({usd, rates, var, billed}), for a details row: what OpenRouter billed
+// if it said, otherwise the estimate with the rates it used on hover, or which .env variable
+// to set when the model has no price.
 function costInfo(c) {
   if (!c) return "?";
+  if (typeof c.billed === "number") {
+    const billed = el("span", "", usd(c.billed));
+    billed.title = "Billed by OpenRouter" + (typeof c.usd === "number" ? `. Its listed prices estimate ${usd(c.usd)}.` : ".");
+    return billed;
+  }
   if (c.usd === null || c.usd === undefined) {
     return ["No price set. Add ", el("code", "", c.var), " to .env"];
   }
@@ -265,7 +271,8 @@ function applyState(e) {
     $("finished-note").textContent = e.note || "";
     const t = e.tokens || {};
     const tokens = t.input || t.output ? `Tokens: ${tokenText(t)}. ` : "";
-    const cost = typeof e.cost?.usd === "number" ? `Cost ≈ ${usd(e.cost.usd)}. ` : "";
+    const cost = typeof e.cost?.billed === "number" ? `Cost ${usd(e.cost.billed)}. `
+      : typeof e.cost?.usd === "number" ? `Cost ≈ ${usd(e.cost.usd)}. ` : "";
     $("finished-meta").textContent = `${shapesOnCanvas} shapes. ${tokens}${cost}${savedId ? "Saved to the gallery." : "Not saved."}`;
     $("view-saved").hidden = !savedId;
     if (lastRun) lastRun.title = e.title || "Untitled";
@@ -492,6 +499,7 @@ function handle(e) {
       setupSettings(e.options, e.settings);
       setTopUpLimits(e.options.top_up_limits);
       configuredModels = e.options.models;
+      hasOpenRouterKey = Boolean(e.options.openrouter_key);
       canvases = e.canvases;
       setupBenchmarks(e.benchmarks || [], e.benchmark_prompt || "");
       for (const [name, [w, h]] of Object.entries(canvases)) {
@@ -822,9 +830,26 @@ let settingsLocked = false;
 // The grid modes, as named in the New painting dialog and the gallery.
 const GRID_NAMES = { frame: "Ruler frame", overlay: "Grid on the image", none: "None" };
 
+// A model id with a "/" runs through OpenRouter; anything else goes direct to OpenAI.
+function fillModelSelect(models) {
+  const select = $("set-model");
+  const chosen = select.value;
+  const group = (label, list) => {
+    const g = document.createElement("optgroup");
+    g.label = label;
+    g.append(...list.map((m) => new Option(m, m)));
+    return g;
+  };
+  const routed = models.filter((m) => m.includes("/"));
+  const direct = models.filter((m) => !m.includes("/"));
+  select.replaceChildren(...(routed.length
+    ? [direct.length ? group("OpenAI (direct)", direct) : null, group("OpenRouter", routed)].filter(Boolean)
+    : direct.map((m) => new Option(m, m))));
+  if (models.includes(chosen)) select.value = chosen;
+}
+
 function setupSettings(options, values) {
-  const model = $("set-model");
-  model.replaceChildren(...options.models.map((m) => new Option(m, m)));
+  fillModelSelect(options.models);
   const effort = $("set-effort");
   const effortName = (v) => (v ? v[0].toUpperCase() + v.slice(1) : "Model default");
   effort.replaceChildren(...options.reasoning_efforts.map((v) => new Option(effortName(v), v)));
@@ -928,13 +953,123 @@ async function openGallery(focusId = null) {
   else $("close-gallery").focus();
 }
 
+// ---- OpenRouter model browser
+// Lists the models Painty can use, with their prices. Adding one offers it in the New painting
+// dialog and chooses it. Prices come with it, so nothing needs setting in .env.
+let hasOpenRouterKey = false;
+const browser = $("model-browser");
+let catalogue = [];
+let addedModels = new Set();
+
+const isFree = (m) => m.price[0] === 0 && m.price[2] === 0;
+const perMillion = (n) => `$${Number(n.toFixed(4))}`;
+
+function contextSize(n) {
+  if (!n) return "";
+  return n >= 1_000_000 ? `${Number((n / 1_000_000).toFixed(1))}M context` : `${Math.round(n / 1000)}K context`;
+}
+
+function modelFacts(m) {
+  const [input, cached, output, write] = m.price;
+  const prices = isFree(m) ? ["Free"] : [`${perMillion(input)} in`];
+  if (!isFree(m)) {
+    if (cached !== input) prices.push(`${perMillion(cached)} cached`);
+    if (write !== input) prices.push(`${perMillion(write)} cache write`);
+    prices.push(`${perMillion(output)} out per million tokens`);
+  }
+  return [...prices, contextSize(m.context_length)].filter(Boolean).join(" · ");
+}
+
+function modelRow(m) {
+  const row = el("li", "model-row");
+  row.title = m.description;
+  const main = el("div");
+  main.append(el("span", "model-name", m.name), el("code", "model-id", m.id), el("p", "model-facts", modelFacts(m)));
+  if (isFree(m)) main.append(el("p", "field-help", "Free models have rate limits, and some may keep your prompts and images."));
+  const added = addedModels.has(m.id);
+  const button = el("button", "ghost-dark", added ? "Remove" : "Add");
+  button.type = "button";
+  button.addEventListener("click", () => changeModel(m.id, !added, button));
+  row.append(main, button);
+  return row;
+}
+
+function renderBrowser() {
+  const words = $("browser-search").value.toLowerCase().split(/\s+/).filter(Boolean);
+  const sorters = {
+    newest: (a, b) => (b.created || 0) - (a.created || 0),
+    cheapest: (a, b) => (a.price[0] + a.price[2]) - (b.price[0] + b.price[2]),
+    name: (a, b) => a.name.localeCompare(b.name),
+  };
+  const shown = catalogue
+    .filter((m) => words.every((w) => `${m.id} ${m.name}`.toLowerCase().includes(w)))
+    .filter((m) => !$("browser-free").checked || isFree(m))
+    .filter((m) => !$("browser-added").checked || addedModels.has(m.id))
+    .sort(sorters[$("browser-sort").value]);
+  $("browser-status").textContent = `Showing ${shown.length} of ${catalogue.length} models that can see images and call tools.`;
+  $("browser-list").replaceChildren(...shown.map(modelRow));
+}
+
+async function openBrowser() {
+  $("browser-key-note").hidden = hasOpenRouterKey;
+  browser.showModal();
+  $("browser-search").focus();
+  if (!catalogue.length) $("browser-status").textContent = "Fetching the model list…";
+  try {
+    const res = await fetch("/api/models/openrouter");
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.detail || "The model list couldn't be fetched.");
+    catalogue = body.models;
+    addedModels = new Set(body.added);
+    hasOpenRouterKey = body.has_key;
+    $("browser-key-note").hidden = hasOpenRouterKey;
+    renderBrowser();
+  } catch (err) {
+    $("browser-status").textContent = `${err.message} Close this and try again.`;
+  }
+}
+
+// Add or remove a model, then bring the New painting dialog up to date. The server sends back
+// the settings too, because removing the chosen model chooses another.
+async function changeModel(id, add, button) {
+  button.disabled = true;
+  try {
+    const res = await fetch(add ? "/api/models" : `/api/models/${encodeURI(id)}`, add
+      ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) }
+      : { method: "DELETE" });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.detail || "That didn't work.");
+    configuredModels = body.models;
+    addedModels = new Set(body.added);
+    fillModelSelect(body.models);
+    savedSettings = body.settings;
+    if (add) {
+      $("set-model").value = id;
+      if (!rerunning) send({ type: "settings", settings: readSettings() });
+    } else if (!body.models.includes($("set-model").value)) {
+      fillSettings({ model: body.settings.model });
+    }
+    renderBrowser();
+  } catch (err) {
+    $("browser-status").textContent = err.message;
+    button.disabled = false;
+  }
+}
+
+$("browse-models").addEventListener("click", openBrowser);
+$("close-browser").addEventListener("click", () => browser.close());
+browser.addEventListener("click", (ev) => { if (ev.target === browser) browser.close(); });
+for (const id of ["browser-search", "browser-free", "browser-added", "browser-sort"]) {
+  $(id).addEventListener("input", renderBrowser);
+}
+
 // ---- model colours
 // Each model gets its own colour, so you can tell at a glance which model made which painting.
 // The models in PAINTY_MODELS come first, in their order, then any others in the gallery
 // alphabetically, so the colours stay put while the model list stays the same.
 const MODEL_COLOURS = ["#8ecae6", "#f4a3a8", "#b5e48c", "#cdb4db", "#ffd166",
   "#8fd9c1", "#f7a072", "#a9b8f0", "#d9c2a3", "#e7a6d9"];
-let configuredModels = []; // PAINTY_MODELS, from hello
+let configuredModels = []; // the models on offer: PAINTY_MODELS and any added from OpenRouter
 let modelColours = new Map();
 
 function assignModelColours(items) {

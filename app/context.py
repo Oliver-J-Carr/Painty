@@ -60,6 +60,13 @@ class Tokens:
     cache_write: int = 0  # the part of input written to the prompt cache (billed from GPT-5.6 on)
     output: int = 0
     reasoning: int = 0    # the part of output spent on reasoning
+    billed: float | None = None  # US dollars charged, when the service says (OpenRouter does)
+
+    def add_billed(self, raw_usage) -> None:
+        """Add one call's charge from its raw usage (a dict, or None if not kept)."""
+        charge = raw_usage.get("cost") if isinstance(raw_usage, dict) else None
+        if isinstance(charge, (int, float)) and not isinstance(charge, bool):
+            self.billed = (self.billed or 0.0) + charge
 
     def add(self, usage) -> None:
         self.input += getattr(usage, "input_tokens", 0) or 0
@@ -71,7 +78,10 @@ class Tokens:
         self.reasoning += getattr(details, "reasoning_tokens", 0) or 0
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        """The token counts. billed isn't one: it travels with the cost."""
+        counts = asdict(self)
+        del counts["billed"]
+        return counts
 
 
 @dataclass
@@ -112,6 +122,7 @@ class PaintyContext:
     looks: list[Look] = field(default_factory=list)    # what the agent saw, in order
     stages: list[Stage] = field(default_factory=list)  # each paint call that painted, in order
     plans: list[Plan] = field(default_factory=list)    # each plan it wrote (planning on), in order
+    plan_forced: bool | None = None    # planning on: was the planning turn forced? (some models refuse)
     tokens: Tokens = field(default_factory=Tokens)      # every model call so far, all segments
     finish_title: str | None = None    # set by the finish tool
     finish_note: str = ""

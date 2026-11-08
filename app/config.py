@@ -27,6 +27,8 @@ def _models() -> tuple[str, ...]:
 class Settings:
     # Models offered in the settings panel. The first is the default.
     models: tuple[str, ...] = field(default_factory=_models)
+    # For models with a "/" in their id, which run through OpenRouter (see app/providers.py).
+    openrouter_api_key: str = field(default=_env("OPENROUTER_API_KEY"), repr=False)
     # Name shown for each drawing run in the OpenAI Traces dashboard.
     trace_workflow_name: str = _env("TRACE_WORKFLOW_NAME", "Painty drawing")
     # Where the gallery and saved settings live. In the container: /srv/data.

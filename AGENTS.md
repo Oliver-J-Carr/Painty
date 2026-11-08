@@ -62,8 +62,10 @@ docker image prune
 
 ## Architecture
 
-- `app/main.py`: FastAPI app, static files, `/api/gallery` (and `PUT /api/gallery/{id}/favourite`), the `/gallery/...` files and the `/ws` WebSocket. One `Studio` per connection.
+- `app/main.py`: FastAPI app, static files, `/api/gallery` (and `PUT /api/gallery/{id}/favourite`), `/api/models` (`GET /api/models/openrouter`, `POST /api/models`, `DELETE /api/models/{id}`), the `/gallery/...` files and the `/ws` WebSocket. One `Studio` per connection.
 - `app/studio.py`: the drawing lifecycle (start, pause, keep going, stop, save) and the traced agent runs. Runs in a background task so `stop` can cancel it.
+- `app/providers.py`: which service runs a model. A `/` in the id means OpenRouter (an `OpenAIResponsesModel` on its own client); anything else is OpenAI directly, unchanged.
+- `app/model_library.py`: the models on offer. `PAINTY_MODELS` plus those added from OpenRouter's catalogue, with their prices, saved in `DATA_DIR/models.json`.
 - `app/painter.py`: the painter agent, its dynamic instructions, `_stop_when_done` (the `tool_use_behavior` that ends a run on `finish` or an empty shape budget) and `planning_agent` (the forced planning turn).
 - `app/tools.py`: the function tools: `plan` (planning on only), `paint`, `look`, `finish`.
 - `app/canvas.py`: the shape models (internal only), the shape notation parser, validation and SVG rendering. No AI here.
@@ -72,7 +74,7 @@ docker image prune
 - `app/benchmark.py`: the benchmark cards. Pictures written in the notation (items in cells, at graded levels), painted by the real renderer, served at `/benchmark/<name>.png` and `.txt`. A chosen card becomes the drawing's reference, painted by the server, and is saved as `benchmark.json`.
 - `app/benchmark_score.py`: scores a benchmark painting against its card, item by item. Run when a benchmark painting is saved (`meta.benchmark_score`, `benchmark-diff.png`), and from the command line (`python -m app.benchmark_score`, `--rescore` to save scores again). Bump `SCORER_VERSION` when the scoring changes. Pillow only.
 - `app/gallery.py`: saves finished paintings as plain files under `DATA_DIR/gallery`, including a snapshot of each stage (one per paint call that painted), rendered at save time.
-- `app/pricing.py`: the estimated cost of a painting from its tokens and the `PAINTY_PRICE_<MODEL>` prices. Worked out live for `/api/gallery` (each item's `cost`) and the finished status.
+- `app/pricing.py`: the estimated cost of a painting from its tokens and its prices (`PAINTY_PRICE_<MODEL>`, or the model library's). Worked out live for `/api/gallery` (each item's `cost`) and the finished status. `cost` also carries `billed` when OpenRouter reported a charge.
 - `app/settings_store.py`: the on-screen settings (in the New painting dialog), clamped and saved to `DATA_DIR/settings.json`.
 - `app/context.py`: `PaintyContext` (canvas, budget, looks, event helpers), passed to tools and hooks, never sent to the model.
 - `app/hooks.py`: `RunHooks` that feed the activity panel.
@@ -88,7 +90,10 @@ docker image prune
 - **(0, 0) is the top-left, y grows downwards.** Matches SVG, PNG pixels and the agent's snapshot. Don't flip it without changing the prompt, the ruler and the tests together.
 - **Paint is permanent.** Shapes are only ever added. No undo, erase, clear or move tools. Mistakes are fixed by painting over.
 - **One renderer.** Each shape becomes one self-contained SVG fragment (`canvas.shape_svg`). The browser shows those fragments; the backend joins the same fragments and rasterises them for looks and the gallery. Never re-implement shape drawing in JavaScript.
-- **Batches, one tool call per turn.** `paint` takes an ordered list, and `parallel_tool_calls=False`, so layering is always in the order the agent planned. `paint_lock` is a backstop.
+- **Batches, one tool call per turn.** `paint` takes an ordered list, and `parallel_tool_calls=False`, so layering is always in the order the agent planned. Not every OpenRouter host honours that, so `RUN_CONFIG` also runs tools one at a time, in order. `paint_lock` is a backstop.
+- **A `/` in the model id means OpenRouter.** A model stays one plain string everywhere. Both routes use the Responses API, because the SDK's Chat Completions route strips images from tool results by default, which would blind `look`. Pass OpenRouter models as `Model` objects, never strings (the SDK reads a string's prefix), and never use `set_default_openai_client` (it would also move tracing and native models). The direct OpenAI path must stay unchanged.
+- **Models and prices can come from the app.** The browser lists OpenRouter's catalogue, kept to models with image input, `tools` and the Responses endpoint. A removed model keeps its price, so older paintings stay priced. `.env` prices win.
+- **Billed beats estimated.** When OpenRouter reports `usage.cost`, it is saved as `billed_usd` and shown instead of the estimate, which can be well off on models with many hosts.
 - **Batches are painted up to the first bad shape.** The shapes before it are painted; it and everything after it are not, and cost no budget, so a resend lands in the planned order. The result lists every problem in the batch, numbered within the batch. Never paint shapes after a bad one: that breaks the layering.
 - **A reference image goes in the first user message, once.** In the same grid mode as `look`, cropped to the canvas size. Never through a tool (each call would add the image again). No text with it means recreate it.
 - **The exemplar goes first in the first user message, once.** Its text and sheets, then the prompt, then any reference. Built from code (`app/exemplar.py`), never a saved PNG, so it can't drift from the renderer. Every example must pass `check_batch` on the sheet (tested). A toggle, for comparison.
@@ -97,7 +102,7 @@ docker image prune
 - **Benchmark cards are written in the notation.** Painted by the real renderer, never a saved image, so a perfect copy is always possible and the score measures the model, not the paint system. No card line may repeat an exemplar line (tested). The server paints the chosen card itself, so the reference is exact, and saves the card's definition with the painting, so scoring uses the card as it was.
 - **The grid is only in the agent's view.** `view.agent_view` applies the drawing's grid mode: `frame` (a numbered ruler frame and faint grid lines every 64 px; the image is 60 px bigger than the canvas), `overlay` (the same grid and small numbers drawn on the picture, exactly canvas-sized) or `none`. It applies to looks, the reference and the exemplar alike. The painting, the browser canvas and the gallery PNG never have a grid. Prompts describe the view through `GRID_NOTES`, never hard-coded ruler wording.
 - **Vision is a toggle, for comparison.** With vision off, the `look` tool is not registered at all and the prompt says it is painting blind.
-- **Planning is a toggle, for comparison.** With it on, the start segment's first turn is the same painter, cloned with `tool_choice="plan"` and the planning effort, stopping after `plan`. The painter then carries on from that history. Instructions and tools are identical in both, so the cache prefix is shared. With it off, the `plan` tool and the prompt section don't exist. Planning prompts and docstrings stay general about layering: never name the specific subjects used to test it.
+- **Planning is a toggle, for comparison.** With it on, the start segment's first turn is the same painter, cloned with `tool_choice="plan"` and the planning effort, stopping after `plan`. A model that refuses forced tool calls (a 400 mentioning `tool_choice`) gets the turn again unforced, recorded as `plan_forced: false`. The painter then carries on from that history. Instructions and tools are identical in both, so the cache prefix is shared. With it off, the `plan` tool and the prompt section don't exist. Planning prompts and docstrings stay general about layering: never name the specific subjects used to test it.
 - **Budgets live in tools, not prompts alone.** Shape and look budgets are enforced in code. The per-call cap stops the agent dumping everything down in one blind batch.
 - **Pausing ends the run cleanly.** When the shape budget hits 0, or the agent calls `look` with no looks left (`wants_look`; not in a benchmark), `_stop_when_done` ends the run with complete history. "Keep going" adds the shapes and looks typed on the paused card (either may be 0, but there must be a shape left) and runs again with that history plus a user message. The hidden turn limit (`shapes_left + looks_left + 10`) is a runaway guard; hitting it also pauses, rebuilding history from the exception.
 - **Keep the prompt cacheable.** The instructions must be identical on every model call within a run, because they come before the whole history and the cache only reuses an exact prefix. Never put live counts in them; they belong in tool results. Never edit earlier history items in place. The drawing id is the `prompt_cache_key`.
@@ -134,12 +139,12 @@ docker image prune
   - `{"type": "save"}`: save a paused, stopped or failed drawing to the gallery.
   - `{"type": "settings", "settings": {...}}`: update settings (refused while painting).
 - Server to browser:
-  - `hello`: `version`, `canvases` (`{shape: [width, height]}`), `settings`, `options` (models, efforts, grids, limits, top_up_limits), `benchmarks` (`[{name, title, about, shape, shapes, shape_budget, look_budget}]`) and `benchmark_prompt`.
+  - `hello`: `version`, `canvases` (`{shape: [width, height]}`), `settings`, `options` (models, efforts, grids, limits, top_up_limits, openrouter_key: whether the key is set, never the key), `benchmarks` (`[{name, title, about, shape, shapes, shape_budget, look_budget}]`) and `benchmark_prompt`.
   - `canvas_reset`: a new drawing started (`prompt`, `reference` (a PNG data URL or null), `benchmark` (a card name or null), `settings`, `shape`, `width`, `height`). Clear and resize the canvas, and clear the feed.
   - `shapes`: `shapes` as `[{n, svg}]` in paint order, plus `key` (the tool call id).
   - `look`: `key`, `n`, `focus` and `image` (a PNG data URL of exactly what the agent saw).
   - `budget`: shapes and looks used, total and left, and `top_ups`.
-  - `status`: `state` of `painting`, `paused` (`reason`, `top_up`: the suggested `shapes` and `looks` to add (`looks` null when painting blind), or null for a benchmark, which can't keep going), `finished` (`title`, `note`, `ending`, `saved_id`, `meta`, `benchmark_score` (null unless a scored benchmark), `tokens`, `cost`), `stopped` or `error` (`reason`).
+  - `status`: `state` of `painting`, `paused` (`reason`, `top_up`: the suggested `shapes` and `looks` to add (`looks` null when painting blind), or null for a benchmark, which can't keep going), `finished` (`title`, `note`, `ending`, `saved_id`, `meta`, `benchmark_score` (null unless a scored benchmark), `tokens`, `cost` (with `billed` when OpenRouter reported a charge)), `stopped` or `error` (`reason`).
   - `phase`: `thinking`, `paint`, `look` or `finish`, shown in the top bar's status line while painting.
   - `activity`: feed entries. Tool entries share a `key` and go from `running` to `done` or `error`. An optional `image` (a data URL) shows as a thumbnail, such as the reference image as Painty sees it.
   - `settings`: the current settings after an update.
@@ -161,6 +166,8 @@ docker image prune
 - `docker compose down -v` deletes the `painty-data` volume, and with it the whole gallery. Use plain `docker compose down`.
 - Some models reject `reasoning.effort`. Set Reasoning effort to "Model default" in the New painting dialog if a model errors.
 - Models in `PAINTY_MODELS` must accept image input for vision mode.
+- The shared OpenRouter client's connections belong to one event loop. That's fine under uvicorn, but `TestClient` starts a new loop per WebSocket, so a second live drawing through it fails with "Event loop is closed". Test live drawings against a real server.
+- When testing live with a container, set `DATA_DIR` to a temporary folder, so added models and test paintings stay out of the `painty-data` volume.
 - The CSS has `[hidden] { display: none !important; }` because component `display` rules otherwise override the `hidden` attribute.
 - `/favicon.ico` needs its explicit route in `main.py`.
 - Every look adds an image to the conversation, and the whole conversation is resent on each model call, so token use grows with each look.

@@ -22,11 +22,13 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import json
 import logging
 import uuid
 
-from agents import ItemHelpers, Runner, trace
+from agents import ItemHelpers, RunConfig, Runner, ToolExecutionConfig, trace
 from agents.exceptions import MaxTurnsExceeded
+from openai import BadRequestError
 
 from . import __version__
 from .canvas import CANVAS_SHAPES, DEFAULT_SHAPE, Canvas
@@ -35,7 +37,9 @@ from .context import Budget, PaintyContext, SendEvent
 from .gallery import Gallery, SaveRequest, settings_dict
 from .hooks import ActivityHooks
 from .painter import PAUSED, PAUSED_LOOKS, build_painter_agent, planning_agent
-from .pricing import cost
+from .model_library import ModelLibrary
+from .pricing import Prices, cost
+from .providers import is_openrouter
 from .settings_store import SettingsStore
 from .tools import budget_left
 from .benchmark import BENCHMARK_PROMPT, CARDS, card_json, card_list, card_png
@@ -55,6 +59,9 @@ PLANNING_TURNS = 2
 # for whatever has run out. You type the amounts on the card, so nothing is fixed.
 TOP_UP_LIMITS = {"shapes": (0, 500), "looks": (0, 50)}
 TOP_UP_SUGGESTED = {"shapes": 20, "looks": 2}
+# One tool at a time, in the order the model asked. parallel_tool_calls=False should mean
+# one call per turn, but not every OpenRouter host supports it, and paint order is the picture.
+RUN_CONFIG = RunConfig(tool_execution=ToolExecutionConfig(max_function_tool_concurrency=1))
 
 
 def _turn_limit(budget: Budget) -> int:
@@ -73,11 +80,13 @@ def _top_up_amount(value, kind: str) -> int:
 
 
 class Studio:
-    def __init__(self, send: SendEvent, store: SettingsStore, gallery: Gallery, model=None) -> None:
+    def __init__(self, send: SendEvent, store: SettingsStore, gallery: Gallery, model=None,
+                 library: ModelLibrary | None = None) -> None:
         self.send = send
         self.store = store
         self.gallery = gallery
         self.model = model  # tests pass a scripted fake model; None = use settings
+        self.library = library  # None = only the prices set in .env
         self.state = "idle"
         self.ctx: PaintyContext | None = None
         self.agent = None
@@ -106,6 +115,7 @@ class Studio:
                 "canvases": {k: list(v) for k, v in CANVAS_SHAPES.items()},
                 "settings": settings_dict(self.store.current),
                 "options": {**self.store.options(),
+                            "openrouter_key": bool(env.openrouter_api_key),
                             "top_up_limits": {k: list(v) for k, v in TOP_UP_LIMITS.items()}},
                 "benchmarks": card_list(), "benchmark_prompt": BENCHMARK_PROMPT}
 
@@ -129,6 +139,10 @@ class Studio:
             return
         if benchmark and benchmark not in CARDS:
             await self._error(f"There's no benchmark card called {benchmark}.")
+            return
+        chosen = self.store.current.model
+        if self.model is None and is_openrouter(chosen) and not env.openrouter_api_key:
+            await self._error(f"{chosen} runs through OpenRouter. Set OPENROUTER_API_KEY in .env first.")
             return
 
         canvas = Canvas(CARDS[benchmark].shape if benchmark else shape)  # unknown shapes: square
@@ -257,8 +271,8 @@ class Studio:
                                  "planning": str(ctx.settings.planning).lower()}):
                 if label == "start" and ctx.settings.planning:
                     run_input = await self._plan_first(run_input)
-                result = await Runner.run(self.agent, run_input, context=ctx,
-                                          hooks=self.hooks, max_turns=_turn_limit(ctx.budget))
+                result = await Runner.run(self.agent, run_input, context=ctx, hooks=self.hooks,
+                                          max_turns=_turn_limit(ctx.budget), run_config=RUN_CONFIG)
             self.history = result.to_input_list()
             if ctx.finished:
                 await self._save_and_finish("finished", ctx.finish_title, ctx.finish_note)
@@ -281,17 +295,32 @@ class Studio:
         except Exception as exc:  # keep the app alive, but show what broke
             log.exception("drawing failed")
             self.history = None
-            await self._quietly(self.ctx.activity("error", "⚠️ The drawing failed", repr(exc)))
+            await self._quietly(self.ctx.activity("error", "⚠️ The drawing failed",
+                                                  _provider_message(exc) or repr(exc)))
             await self._quietly(self._set_state("error", reason=_short_error(exc)))
 
     async def _plan_first(self, run_input):
         """The planning turn: the painter, forced to call plan at the planning effort.
         Returns the conversation for the painter to carry on from. A planning turn
-        that writes no plan doesn't stop the drawing: it paints without one."""
+        that writes no plan doesn't stop the drawing: it paints without one.
+        Some models refuse a forced tool call, so they are only asked to plan."""
         ctx = self.ctx
+        ctx.plan_forced = True
+
+        async def planning_turn():
+            return await Runner.run(planning_agent(self.agent, ctx.settings, forced=ctx.plan_forced),
+                                    run_input, context=ctx, hooks=self.hooks, max_turns=PLANNING_TURNS,
+                                    run_config=RUN_CONFIG)
         try:
-            result = await Runner.run(planning_agent(self.agent, ctx.settings), run_input, context=ctx,
-                                      hooks=self.hooks, max_turns=PLANNING_TURNS)
+            try:
+                result = await planning_turn()
+            except BadRequestError as exc:
+                if "tool_choice" not in f"{exc.body} {exc}":
+                    raise
+                ctx.plan_forced = False
+                await ctx.activity("agent", "📝 This model can't be made to call a tool",
+                                   "So nothing forces the planning turn: only the prompt asks for a plan.")
+                result = await planning_turn()
             history, said = result.to_input_list(), str(result.final_output or "")
         except MaxTurnsExceeded as exc:
             history, said = _history_from(exc), str(exc)
@@ -321,6 +350,9 @@ class Studio:
             "looks": (TOP_UP_SUGGESTED["looks"] if b.looks_left == 0 else 0) if vision else None,
         })
 
+    def _prices(self) -> Prices:
+        return self.library.prices() if self.library else env.prices
+
     async def _score(self) -> tuple[dict | None, bytes | None]:
         """A benchmark drawing's score and difference picture, worked out off the event
         loop. (None, None) for other drawings, or if scoring fails (it never stops a save)."""
@@ -345,7 +377,7 @@ class Studio:
             benchmark_score=score, benchmark_diff=diff,
             settings=settings_dict(c.settings), shapes_budget=c.budget.shapes_total,
             looks_budget=c.budget.looks_total, looks=list(c.looks), stages=list(c.stages),
-            plans=list(c.plans),
+            plans=list(c.plans), plan_forced=c.plan_forced, billed_usd=c.tokens.billed,
             top_ups=c.budget.top_ups,
             input_tokens=c.tokens.input, cached_tokens=c.tokens.cached,
             cache_write_tokens=c.tokens.cache_write,
@@ -367,7 +399,8 @@ class Studio:
                               saved_id=self.saved_id, meta=meta, benchmark_score=score,
                               tokens=c.tokens.to_dict(),
                               cost=cost(c.settings.model, c.tokens.input, c.tokens.cached,
-                                        c.tokens.output, env.prices, c.tokens.cache_write))
+                                        c.tokens.output, self._prices(), c.tokens.cache_write,
+                                        c.tokens.billed))
 
     @staticmethod
     async def _quietly(coro) -> None:
@@ -410,6 +443,25 @@ def _history_from(exc: MaxTurnsExceeded) -> list | None:
     ]
 
 
+def _provider_message(exc: Exception) -> str | None:
+    """What the model's host really said. OpenRouter's own message is only "Provider
+    returned error": the reason is in the error body's metadata.raw, often as JSON."""
+    body = getattr(exc, "body", None)
+    meta = body.get("metadata") if isinstance(body, dict) else None
+    raw = meta.get("raw") if isinstance(meta, dict) else None
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw) if isinstance(raw, str) else raw
+    except ValueError:
+        return str(raw)
+    error = parsed.get("error") if isinstance(parsed, dict) else None
+    message = error.get("message") if isinstance(error, dict) else None
+    if not message and isinstance(parsed, dict):
+        message = parsed.get("message")
+    return str(message or raw)
+
+
 def _short_error(exc: Exception) -> str:
-    text = str(exc) or exc.__class__.__name__
+    text = _provider_message(exc) or str(exc) or exc.__class__.__name__
     return text if len(text) <= 300 else text[:300] + "…"

@@ -106,6 +106,11 @@ class SettingsStore:
             log.warning("could not save settings to %s: %s", self.path, exc)
         return self.current
 
+    def set_models(self, models: tuple[str, ...]) -> None:
+        """The models on offer changed. If the chosen one has gone, the first is chosen."""
+        self.models = models
+        self.current = clean({}, models, self.current)
+
     def options(self) -> dict:
         """What the settings panel needs to build its controls."""
         return {"models": list(self.models), "reasoning_efforts": list(REASONING_EFFORTS),
