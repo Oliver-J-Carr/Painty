@@ -3,12 +3,17 @@
 The card's own pixels (the painting's reference.png) are compared with the
 painting (painting.svg rendered at canvas size), item by item, in each item's
 cell. A pixel has paint when any channel differs from white by more than
-PAINT_THRESHOLD. For each item:
+PAINT_THRESHOLD. Edges get EDGE_TOLERANCE px of grace: a pixel only counts as
+missing or extra if the other image has no paint that close, and its colour only
+counts as wrong if it doesn't fit the colours that close in the other image (an
+anti-aliased edge is a blend of them). Without this a thin stroke, nearly all
+edge, drops to about 66% from a 1 px shift that a large shape barely notices.
+For each item:
 
-    score    pixels where both have paint and the colours match (within
-             COLOUR_TOLERANCE), out of the pixels where either has paint.
+    score    pixels where the paint is in the right place and the colours match
+             (within COLOUR_TOLERANCE), out of the pixels where either has paint.
              The headline number: 1 is a perfect copy.
-    shape    the same without the colour check (IoU of where the paint is).
+    shape    the same without the colour check.
     colour   how close the colours are where both have paint (1 = the same).
     offset   the shift (dx, dy) that best lines the copy up with the card,
              within MAX_SHIFT px: positive dx means the copy is to the right.
@@ -47,9 +52,10 @@ from .view import render_png
 
 PAINT_THRESHOLD = 24     # 0-255: a pixel further than this from white has paint
 COLOUR_TOLERANCE = 40    # 0-255: the most any channel may differ for colours to match
+EDGE_TOLERANCE = 1       # px: how far off an edge may be before it counts as wrong
 MAX_SHIFT = 32           # px: the widest offset searched
 COARSE = 4               # px: the first pass of the offset search
-SCORER_VERSION = 1       # saved with each score: bump it when the scoring changes
+SCORER_VERSION = 2       # saved with each score: bump it when the scoring changes
 
 Box = tuple[int, int, int, int]
 
@@ -75,10 +81,28 @@ class CardScore:
 
 
 # ------------------------------------------------------------------ masks
+def _largest_channel(img: Image.Image) -> Image.Image:
+    r, g, bl = img.split()
+    return ImageChops.lighter(ImageChops.lighter(r, g), bl)
+
+
 def _distance(a: Image.Image, b: Image.Image) -> Image.Image:
     """Per pixel, the largest channel difference between two RGB images (mode L)."""
-    r, g, bl = ImageChops.difference(a, b).split()
-    return ImageChops.lighter(ImageChops.lighter(r, g), bl)
+    return _largest_channel(ImageChops.difference(a, b))
+
+
+def _outside(a: Image.Image, b: Image.Image) -> Image.Image:
+    """Per pixel, how far a's colour is outside the range of b's colours within
+    EDGE_TOLERANCE px (mode L). Inside the range is 0."""
+    size = 2 * EDGE_TOLERANCE + 1
+    low, high = b.filter(ImageFilter.MinFilter(size)), b.filter(ImageFilter.MaxFilter(size))
+    return _largest_channel(ImageChops.lighter(ImageChops.subtract(low, a), ImageChops.subtract(a, high)))
+
+
+def _colour_gap(a: Image.Image, b: Image.Image) -> Image.Image:
+    """Per pixel, how far apart two RGB images' colours are, allowing for edges that
+    are up to EDGE_TOLERANCE px off. 0 for the same picture."""
+    return ImageChops.darker(_outside(a, b), _outside(b, a))
 
 
 def _over(img: Image.Image, threshold: int) -> Image.Image:
@@ -99,6 +123,20 @@ def _iou(a: Image.Image, b: Image.Image) -> float:
     return _count(ImageChops.darker(a, b)) / union if union else 1.0
 
 
+def _grown(mask: Image.Image) -> Image.Image:
+    return mask.filter(ImageFilter.MaxFilter(2 * EDGE_TOLERANCE + 1))
+
+
+def _near(a: Image.Image, b: Image.Image) -> Image.Image:
+    """The paint in either mask that has paint in the other within EDGE_TOLERANCE px."""
+    return ImageChops.lighter(ImageChops.darker(a, _grown(b)), ImageChops.darker(b, _grown(a)))
+
+
+def _shape_score(a: Image.Image, b: Image.Image) -> float:
+    union = _count(ImageChops.lighter(a, b))
+    return _count(_near(a, b)) / union if union else 1.0
+
+
 def _crop(mask: Image.Image, box: Box, dx: int = 0, dy: int = 0) -> Image.Image:
     """mask cropped to box moved by (dx, dy). Outside the image is empty (black)."""
     x0, y0, x1, y1 = box
@@ -108,8 +146,9 @@ def _crop(mask: Image.Image, box: Box, dx: int = 0, dy: int = 0) -> Image.Image:
 def best_offset(target: Image.Image, copy: Image.Image, box: Box,
                 reach: int = MAX_SHIFT) -> tuple[tuple[int, int] | None, float]:
     """The shift of the copy that best overlaps the target's paint in box, and the
-    IoU there. A coarse grid first, then every pixel round the best. Ties go to
-    the smaller shift. None when the copy has no paint near the box."""
+    shape score there. A coarse grid first, then every pixel round the best. Ties go
+    to the smaller shift. The search uses exact overlap, with no edge tolerance, so
+    the offset stays precise. None when the copy has no paint near the box."""
     want = _crop(target, box)
 
     def score(d: tuple[int, int]) -> tuple[float, int]:
@@ -122,8 +161,9 @@ def best_offset(target: Image.Image, copy: Image.Image, box: Box,
             for dy in range(-COARSE + 1, COARSE)
             if abs(best[0] + dx) <= reach and abs(best[1] + dy) <= reach]
     best = max(fine, key=score)
-    iou = score(best)[0]
-    return (best if iou > 0 else None), iou
+    if score(best)[0] == 0:
+        return None, 0.0
+    return best, _shape_score(want, _crop(copy, box, *best))
 
 
 # ------------------------------------------------------------------ scoring
@@ -134,14 +174,15 @@ def _region_scores(card: Image.Image, copy: Image.Image, box: Box, blur: int = 0
         a, b = a.filter(ImageFilter.BoxBlur(blur)), b.filter(ImageFilter.BoxBlur(blur))
     pa, pb = _paint_mask(a), _paint_mask(b)
     both = ImageChops.darker(pa, pb)
+    near = _near(pa, pb)
     union = _count(ImageChops.lighter(pa, pb))
-    dist = _distance(a, b)
-    agree = ImageChops.darker(both, dist.point(lambda v: 255 if v <= COLOUR_TOLERANCE else 0))
+    gap = _colour_gap(a, b)
+    agree = ImageChops.darker(near, gap.point(lambda v: 255 if v <= COLOUR_TOLERANCE else 0))
     score = _count(agree) / union if union else 1.0
-    shape = _count(both) / union if union else 1.0
+    shape = _count(near) / union if union else 1.0
     colour = None
     if _count(both):
-        colour = 1 - ImageStat.Stat(dist, both).mean[0] / 255
+        colour = 1 - ImageStat.Stat(gap, both).mean[0] / 255
     return score, shape, colour
 
 
@@ -201,16 +242,19 @@ def score_folder_with_diff(folder: Path) -> tuple[CardScore, bytes]:
 # ------------------------------------------------------------------ the diff picture
 def diff_png(card_img: Image.Image, copy_img: Image.Image, card: dict, result: CardScore) -> bytes:
     """Card | painting | difference, side by side, each cell outlined and labelled
-    with its item's score. In the difference, grey is where they agree, red is
-    paint the copy is missing and blue is paint the copy has that the card doesn't."""
+    with its item's score. In the difference, every pixel that isn't grey counts
+    against the score: red is paint the copy is missing, blue is paint the copy has
+    that the card doesn't, and amber is paint in the right place in the wrong colour."""
     a = card_img.convert("RGB")
     b = copy_img.convert("RGB").resize(a.size)
     pa, pb = _paint_mask(a), _paint_mask(b)
     w, h = a.size
     diff = Image.new("RGB", a.size, (255, 255, 255))
-    diff.paste((200, 200, 200), mask=ImageChops.darker(pa, pb))
-    diff.paste((220, 50, 50), mask=ImageChops.subtract(pa, pb))
-    diff.paste((50, 100, 220), mask=ImageChops.subtract(pb, pa))
+    near = _near(pa, pb)
+    diff.paste((200, 200, 200), mask=near)
+    diff.paste((235, 160, 30), mask=ImageChops.darker(near, _over(_colour_gap(a, b), COLOUR_TOLERANCE)))
+    diff.paste((220, 50, 50), mask=ImageChops.subtract(pa, _grown(pb)))
+    diff.paste((50, 100, 220), mask=ImageChops.subtract(pb, _grown(pa)))
     gap = 12
     out = Image.new("RGB", (w * 3 + gap * 2, h + 24), (255, 255, 255))
     font = ImageFont.load_default(size=12)

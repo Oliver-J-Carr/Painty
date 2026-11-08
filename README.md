@@ -119,7 +119,7 @@ Without Docker, run the same commands from the repo root with the venv active.
 
 Each item gets these numbers:
 
-- **score**: the share of painted pixels where the copy matches the card, place and colour. 1 is perfect.
+- **score**: the share of painted pixels where the copy matches the card, place and colour. 1 is perfect. Edges may be 1 px off without losing anything, so thin strokes aren't marked down for tiny slips.
 - **shape**: the same, ignoring colour.
 - **colour**: how close the colours are where both have paint.
 - **offset**: the shift that best lines the copy up with the card. Positive x means the copy sits to the right.

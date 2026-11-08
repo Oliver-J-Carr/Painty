@@ -7,7 +7,7 @@ import pytest
 from PIL import Image, ImageChops
 
 from app.benchmark import BENCHMARK_LOOKS, CARDS, LEVELS, card_canvas, card_json, card_png, card_text
-from app.benchmark_score import best_offset, main, score_folder, score_images, _paint_mask
+from app.benchmark_score import best_offset, diff_png, main, score_folder, score_images, _paint_mask
 from app.canvas import Canvas, check_batch
 from app.exemplar import SHEETS
 from app.settings_store import LIMITS, StudioSettings
@@ -99,6 +99,32 @@ def test_a_shifted_copy_reports_its_offset():
     assert result.score < 0.9
 
 
+@pytest.mark.parametrize("name", ["combined", "effects", "letters"])
+def test_a_copy_one_pixel_off_barely_loses_anything(name):
+    """Thin strokes are nearly all edge: exact pixels put a stroke like this at 66%."""
+    img = _img(card_png(name))
+    result = score_images(img, ImageChops.offset(img, 1, 1), card_json(name))
+    assert all(i.score >= 0.95 and i.shape >= 0.95 for i in result.items), result.items
+
+
+def test_edge_grace_stops_at_one_pixel():
+    img = _img(card_png("letters"))
+    result = score_images(img, ImageChops.offset(img, 3, 3), card_json("letters"))  # diagonal: moves every stroke
+    assert all(i.score < 0.9 for i in result.items), result.items
+    assert all(i.offset == (3, 3) and i.shifted == 1 for i in result.items), result.items
+
+
+def test_too_thick_a_stroke_loses_score():
+    card = CARDS["combined"]
+    stroke = next(i for i in card.items if i.name == "bent tapered stroke")
+    data = {"name": "t", "items": [{"name": stroke.name, "level": stroke.level, "box": list(stroke.box)}]}
+    target, copy = Canvas("landscape"), Canvas("landscape")
+    target.add([s for _, s in check_batch(list(stroke.shapes), 768, 512)[0]])
+    copy.add([s for _, s in check_batch(["line 220 450 356 320 #2d3142 thickness=30 taper=end"], 768, 512)[0]])
+    result = score_images(_img(render_png(target.to_svg())), _img(render_png(copy.to_svg())), data)
+    assert result.items[0].score < 0.85, result.items
+
+
 def test_a_blank_canvas_scores_nothing():
     img = _img(card_png("solids"))
     blank = Image.new("RGB", img.size, "white")
@@ -115,6 +141,21 @@ def test_wrong_colours_keep_the_shape_but_lose_the_score():
     result = score_images(_img(render_png(card.to_svg())), _img(render_png(copy.to_svg())), data)
     item = result.items[0]
     assert item.shape == 1 and item.score == 0 and item.colour < 0.6
+
+
+def test_the_difference_picture_shows_what_the_score_counts():
+    data = {"name": "t", "items": [{"name": "square", "level": "basic", "box": [0, 0, 512, 512]}]}
+    card, copy = Canvas(), Canvas()
+    card.add([s for _, s in check_batch(["rectangle 50 50 150 150 #2f6db5", "rectangle 250 50 350 150 #2f6db5"])[0]])
+    copy.add([s for _, s in check_batch(["rectangle 51 51 151 151 #2f6db5", "rectangle 250 50 350 150 #e2543b",
+                                         "rectangle 50 300 150 400 #2f6db5"])[0]])
+    a, b = _img(render_png(card.to_svg())), _img(render_png(copy.to_svg()))
+    diff = _img(diff_png(a, b, data, score_images(a, b, data)))
+    panel = 2 * (512 + 12)  # the third picture, under its 24 px label
+    assert diff.getpixel((panel + 100, 24 + 100)) == (200, 200, 200)  # 1 px off: fine
+    assert diff.getpixel((panel + 50, 24 + 50)) == (200, 200, 200)    # its forgiven corner
+    assert diff.getpixel((panel + 300, 24 + 100)) == (235, 160, 30)   # the wrong colour
+    assert diff.getpixel((panel + 100, 24 + 350)) == (50, 100, 220)   # extra paint
 
 
 def test_spray_scores_well_whatever_its_speckle():

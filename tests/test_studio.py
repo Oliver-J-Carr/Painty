@@ -886,7 +886,7 @@ def test_a_benchmark_card_is_the_reference_and_is_saved_for_scoring(tmp_path):
     assert json.loads((folder / "benchmark.json").read_text()) == card_json("intermediate")
     # Scored when saved: in meta.json and the finished status, with the difference picture.
     score = meta["benchmark_score"]
-    assert score["card"] == "intermediate" and score["scorer"] == 1
+    assert score["card"] == "intermediate" and score["scorer"] == 2
     assert 0 <= score["score"] < 0.2 and len(score["items"]) == len(CARDS["intermediate"].items)
     assert types(events, "status")[-1]["benchmark_score"] == score
     assert Image.open(folder / "benchmark-diff.png").size == (768 * 3 + 24, 512 + 24)

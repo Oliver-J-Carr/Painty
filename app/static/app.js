@@ -1295,14 +1295,14 @@ function scoreItems(m, base) {
   wrap.appendChild(table);
   const diff = el("button", "score-diff");
   diff.type = "button";
-  diff.title = "Card, painting and difference: grey matches, red is missing, blue is extra";
+  diff.title = "Card, painting and difference: grey matches, red is missing, blue is extra, amber is the wrong colour";
   const img = el("img");
   img.src = `${base}/benchmark-diff.png`;
   img.alt = "The card, the painting and the difference between them";
   img.loading = "lazy";
   diff.appendChild(img);
   diff.addEventListener("click", () => openLightbox(img.src, "Card · painting · difference",
-    [el("p", "", "Grey is paint in both, red is paint the copy is missing, blue is paint it added.")]));
+    [el("p", "", "Grey matches, red is paint the copy is missing, blue is paint it added, amber is the wrong colour. Edges may be 1 px off.")]));
   wrap.appendChild(diff);
   return wrap;
 }
