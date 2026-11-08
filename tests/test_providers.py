@@ -1,6 +1,7 @@
 """The route a model takes: OpenAI directly, or OpenRouter. No network or key needed."""
 
 import dataclasses
+import json
 
 import pytest
 from agents import OpenAIResponsesModel
@@ -9,7 +10,8 @@ from fastapi.testclient import TestClient
 import app.main as main_module
 from app import providers
 from app.gallery import Gallery
-from app.model_library import CatalogueError, ModelLibrary, parse_catalogue, parse_model
+from app.benchmark_score import SCORER_VERSION, best_scores
+from app.model_library import CATALOGUE_URL, CatalogueError, ModelLibrary, parse_catalogue, parse_model
 from app.painter import build_painter_agent
 from app.pricing import cost, price_var
 from app.settings_store import SettingsStore, StudioSettings
@@ -93,6 +95,51 @@ def test_free_models_are_kept_at_zero():
 ])
 def test_models_painty_cant_use_are_left_out(changes):
     assert parse_model(entry(**changes)) is None
+
+
+def test_the_scores_painty_sorts_by_are_kept():
+    m = parse_model(entry(benchmarks={
+        "artificial_analysis": {"intelligence_index": 59.1, "coding_index": 70, "agentic_index": 57.2},
+        "design_arena": [{"arena": "agents", "category": "webapps", "elo": 1300},
+                         {"arena": "models", "category": "website", "elo": 1400},
+                         {"arena": "models", "category": "svg", "elo": 1468}]}))
+    assert m["benchmarks"] == {"intelligence": 59.1, "agentic": 57.2, "design_arena_svg": 1468}
+
+
+@pytest.mark.parametrize("changes", [
+    {},                                                                  # omitted when there's no data
+    {"benchmarks": None},
+    {"benchmarks": {"design_arena": [], "artificial_analysis": {"intelligence_index": None}}},
+    {"benchmarks": {"design_arena": "nope", "artificial_analysis": {"agentic_index": "57"}}},
+    {"benchmarks": {"design_arena": [{"arena": "agents", "category": "svg", "elo": 1300}]}},  # the wrong arena
+    {"benchmarks": {"artificial_analysis": {"intelligence_index": True}}},
+])
+def test_a_missing_or_strange_score_is_none(changes):
+    assert parse_model(entry(**changes))["benchmarks"] == {
+        "intelligence": None, "agentic": None, "design_arena_svg": None}
+
+
+def test_popularity_is_a_models_place_among_those_painty_can_use():
+    models = parse_catalogue({"data": [entry("a/first"), entry("b/text-only", architecture={"input_modalities": ["text"]}),
+                                       entry("c/second")]})
+    assert [(m["id"], m["popularity"]) for m in models] == [("a/first", 1), ("c/second", 2)]
+
+
+def test_the_catalogue_is_asked_for_in_order_of_popularity():
+    assert CATALOGUE_URL.endswith("?sort=most-popular")
+
+
+def _run(model, score, card="combined", scorer=SCORER_VERSION):
+    return {"settings": {"model": model}, "benchmark": card, "benchmark_score": {"score": score, "scorer": scorer}}
+
+
+def test_best_scores_keeps_each_models_best_on_the_combined_card():
+    items = [_run("a/one", 0.4), _run("a/one", 0.9), _run("a/one", 0.7), _run("b/two", 0.0),
+             _run("a/one", 1.0, card="basic"),         # cards differ in difficulty
+             _run("c/old", 0.8, scorer=SCORER_VERSION - 1),  # not comparable
+             {"settings": {"model": "d/plain"}},        # not a benchmark
+             {"benchmark": "combined", "benchmark_score": {"score": 0.5, "scorer": SCORER_VERSION}}]  # no model
+    assert best_scores(items) == {"a/one": {"best": 0.9, "runs": 3}, "b/two": {"best": 0.0, "runs": 1}}
 
 
 def test_a_broken_catalogue_says_so():
@@ -214,6 +261,14 @@ def test_the_api_lists_adds_and_removes_models(client):
 
     removed = client.delete("/api/models/google/gemma-4-31b-it").json()
     assert removed["models"] == ["gpt-6-luna"] and removed["settings"]["model"] == "gpt-6-luna"
+
+
+def test_the_api_lists_painty_scores(client, tmp_path):
+    folder = tmp_path / "gallery" / "20261108-120000-run"
+    folder.mkdir(parents=True)
+    (folder / "meta.json").write_text(json.dumps(_run("google/gemma-4-31b-it", 0.5)))
+    assert client.get("/api/models/openrouter").json()["painty_scores"] == {
+        "google/gemma-4-31b-it": {"best": 0.5, "runs": 1}}
 
 
 def test_the_api_refuses_unknown_models(client):

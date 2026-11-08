@@ -960,6 +960,33 @@ let hasOpenRouterKey = false;
 const browser = $("model-browser");
 let catalogue = [];
 let addedModels = new Set();
+let paintyScores = {}; // model id -> its best score on the combined card, and how many runs
+
+// Sorts by a score, shown on each row. Most models have no third-party score, and those go last,
+// in the catalogue's order (most popular first). Popularity is a place in a list, so lowest first.
+const SCORE_SORTS = {
+  popular: { value: (m) => m.popularity, lowestFirst: true, have: "a popularity rank", missing: "Not ranked",
+    text: (v) => `#${v} most popular on OpenRouter` },
+  intelligence: { value: (m) => m.benchmarks.intelligence, have: "an Intelligence score", missing: "No Intelligence score",
+    text: (v) => `Artificial Analysis Intelligence Index: ${v}` },
+  agentic: { value: (m) => m.benchmarks.agentic, have: "an Agentic score", missing: "No Agentic score",
+    text: (v) => `Artificial Analysis Agentic Index: ${v}` },
+  design: { value: (m) => m.benchmarks.design_arena_svg, have: "a Design Arena SVG rating", missing: "No Design Arena SVG rating",
+    text: (v) => `Design Arena SVG ELO: ${v}` },
+  painty: { value: (m) => paintyScores[m.id]?.best, have: "a Painty score", missing: "No Painty score yet",
+    text: (v, m) => {
+      const runs = paintyScores[m.id].runs;
+      return `Best Painty score: ${Math.round(v * 100)}% from ${runs} combined card ${runs === 1 ? "run" : "runs"}`;
+    } },
+};
+
+function byScore({ value, lowestFirst }) {
+  return (a, b) => {
+    const [x, y] = [value(a), value(b)];
+    if (x == null || y == null) return (x == null) - (y == null);
+    return lowestFirst ? x - y : y - x;
+  };
+}
 
 const isFree = (m) => m.price[0] === 0 && m.price[2] === 0;
 const perMillion = (n) => `$${Number(n.toFixed(4))}`;
@@ -980,11 +1007,16 @@ function modelFacts(m) {
   return [...prices, contextSize(m.context_length)].filter(Boolean).join(" · ");
 }
 
-function modelRow(m) {
+function modelRow(m, scoreSort) {
   const row = el("li", "model-row");
   row.title = m.description;
   const main = el("div");
   main.append(el("span", "model-name", m.name), el("code", "model-id", m.id), el("p", "model-facts", modelFacts(m)));
+  if (scoreSort) {
+    const score = scoreSort.value(m);
+    main.append(score == null ? el("p", "model-score none", scoreSort.missing)
+      : el("p", "model-score", scoreSort.text(score, m)));
+  }
   if (isFree(m)) main.append(el("p", "field-help", "Free models have rate limits, and some may keep your prompts and images."));
   const added = addedModels.has(m.id);
   const button = el("button", "ghost-dark", added ? "Remove" : "Add");
@@ -996,6 +1028,7 @@ function modelRow(m) {
 
 function renderBrowser() {
   const words = $("browser-search").value.toLowerCase().split(/\s+/).filter(Boolean);
+  const scoreSort = SCORE_SORTS[$("browser-sort").value];
   const sorters = {
     newest: (a, b) => (b.created || 0) - (a.created || 0),
     cheapest: (a, b) => (a.price[0] + a.price[2]) - (b.price[0] + b.price[2]),
@@ -1005,9 +1038,11 @@ function renderBrowser() {
     .filter((m) => words.every((w) => `${m.id} ${m.name}`.toLowerCase().includes(w)))
     .filter((m) => !$("browser-free").checked || isFree(m))
     .filter((m) => !$("browser-added").checked || addedModels.has(m.id))
-    .sort(sorters[$("browser-sort").value]);
-  $("browser-status").textContent = `Showing ${shown.length} of ${catalogue.length} models that can see images and call tools.`;
-  $("browser-list").replaceChildren(...shown.map(modelRow));
+    .sort(scoreSort ? byScore(scoreSort) : sorters[$("browser-sort").value]);
+  const scored = scoreSort ? shown.filter((m) => scoreSort.value(m) != null).length : shown.length;
+  $("browser-status").textContent = `Showing ${shown.length} of ${catalogue.length} models that can see images and call tools.`
+    + (scored < shown.length ? ` ${scored} have ${scoreSort.have}, listed first.` : "");
+  $("browser-list").replaceChildren(...shown.map((m) => modelRow(m, scoreSort)));
 }
 
 async function openBrowser() {
@@ -1021,6 +1056,7 @@ async function openBrowser() {
     if (!res.ok) throw new Error(body.detail || "The model list couldn't be fetched.");
     catalogue = body.models;
     addedModels = new Set(body.added);
+    paintyScores = body.painty_scores;
     hasOpenRouterKey = body.has_key;
     $("browser-key-note").hidden = hasOpenRouterKey;
     renderBrowser();
@@ -1079,6 +1115,22 @@ function assignModelColours(items) {
   modelColours = new Map(order.map((m, i) => [m, MODEL_COLOURS[i % MODEL_COLOURS.length]]));
 }
 
+// Who made a model: the part of its id before the /, or OpenAI when there's no / (those
+// go straight to OpenAI). ~ marks OpenRouter's "latest" aliases. Names a prefix can't spell.
+const DEVELOPER_NAMES = {
+  openai: "OpenAI", "x-ai": "xAI", "z-ai": "Z.ai", moonshotai: "Moonshot AI", mistralai: "Mistral",
+  "meta-llama": "Meta", "bytedance-seed": "ByteDance Seed", deepseek: "DeepSeek", nvidia: "NVIDIA",
+  minimax: "MiniMax", "prism-ml": "PrismML", stepfun: "StepFun", thinkingmachines: "Thinking Machines",
+  "particle-ai": "Particle AI", inclusionai: "inclusionAI", "nex-agi": "Nex AGI", rekaai: "Reka",
+};
+
+function developerOf(model) {
+  if (!model) return null;
+  const prefix = model.includes("/") ? model.split("/")[0].replace(/^~/, "") : "openai";
+  return DEVELOPER_NAMES[prefix]
+    || prefix.split("-").map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
+}
+
 function modelPill(model) {
   const pill = el("span", "model-pill", model || "unknown model");
   const colour = modelColours.get(model);
@@ -1132,14 +1184,24 @@ function showFavourite(m) {
 }
 
 // ---- filters
-// No model chosen means every model; models are either-or, the other filters stack on top.
-// Kept while the page is open.
+// No developer chosen means every model. Developers are either-or, and choosing one shows its
+// models as sub-filters: none chosen means all of that developer's, and each developer narrows
+// separately, so one model from here can be compared with all of another developer's. The other
+// filters stack on top. Kept while the page is open.
 let galleryItems = [];
-const galleryFilter = { models: new Set(), favourites: false, benchmarks: false };
+const galleryFilter = { developers: new Set(), models: new Set(), favourites: false, benchmarks: false };
+
+function passesModelFilter(model) {
+  if (!galleryFilter.developers.size) return true;
+  const developer = developerOf(model);
+  if (!galleryFilter.developers.has(developer)) return false;
+  const narrowed = [...galleryFilter.models].some((chosen) => developerOf(chosen) === developer);
+  return !narrowed || galleryFilter.models.has(model);
+}
 
 // Each filter on its own: does painting m pass it?
 const FACETS = {
-  models: (m) => !galleryFilter.models.size || galleryFilter.models.has(m.settings?.model),
+  models: (m) => passesModelFilter(m.settings?.model),
   favourites: (m) => !galleryFilter.favourites || Boolean(m.favourite),
   benchmarks: (m) => !galleryFilter.benchmarks || Boolean(m.benchmark),
 };
@@ -1150,7 +1212,7 @@ function shown(m, skip = null) {
 }
 
 // A chip's count stacks on the other filters: how many paintings it would show with them.
-// A model chip ignores the model choice (models are either-or), so it counts its own.
+// Developer and model chips ignore the model choice (they're either-or), so they count their own.
 function countWhere(skip, test) {
   return galleryItems.filter((m) => shown(m, skip) && test(m)).length;
 }
@@ -1169,27 +1231,63 @@ function filterChip(label, pressed, onClick, colour) {
   return b;
 }
 
-function renderFilters() {
+// The gallery's models grouped by developer. Developers are alphabetical, so they're easy to
+// find in a long list; each one's models are in colour order.
+function modelsByDeveloper() {
   const inGallery = new Set(galleryItems.map((m) => m.settings?.model));
-  for (const name of [...galleryFilter.models]) if (!inGallery.has(name)) galleryFilter.models.delete(name);
+  const groups = new Map();
+  for (const model of modelColours.keys()) {
+    if (!inGallery.has(model)) continue; // a model stays listed (at 0) while other filters hide it
+    const developer = developerOf(model);
+    groups.set(developer, [...(groups.get(developer) || []), model]);
+  }
+  return new Map([...groups].sort(([a], [b]) => a.localeCompare(b, undefined, { sensitivity: "base" })));
+}
+
+function renderFilters() {
+  const groups = modelsByDeveloper();
+  const { developers, models } = galleryFilter;
+  for (const name of [...developers]) if (!groups.has(name)) developers.delete(name);
+  const available = new Set([...groups.values()].flat());
+  for (const name of [...models]) if (!available.has(name)) models.delete(name);
   const counts = new Map();
   for (const m of galleryItems) {
     if (shown(m, "models")) counts.set(m.settings?.model, (counts.get(m.settings?.model) || 0) + 1);
   }
+  const total = (list) => list.reduce((sum, model) => sum + (counts.get(model) || 0), 0);
 
-  const chips = [filterChip(`All models (${countWhere("models", () => true)})`, galleryFilter.models.size === 0, () => {
-    galleryFilter.models.clear();
+  const chips = [filterChip(`All models (${countWhere("models", () => true)})`, developers.size === 0, () => {
+    developers.clear();
+    models.clear();
     renderGallery();
   })];
-  for (const [model, colour] of modelColours) {
-    if (!inGallery.has(model)) continue; // a model stays listed (at 0) while other filters hide it
-    chips.push(filterChip(`${model} (${counts.get(model) || 0})`, galleryFilter.models.has(model), () => {
-      if (galleryFilter.models.has(model)) galleryFilter.models.delete(model);
-      else galleryFilter.models.add(model);
+  for (const [developer, list] of groups) {
+    chips.push(filterChip(`${developer} (${total(list)})`, developers.has(developer), () => {
+      if (developers.delete(developer)) list.forEach((model) => models.delete(model));
+      else developers.add(developer);
       renderGallery();
-    }, colour));
+    }));
   }
   $("filter-models").replaceChildren(...chips);
+
+  // One row of model chips per chosen developer, under the main row.
+  const rows = [];
+  for (const [developer, list] of groups) {
+    if (!developers.has(developer)) continue;
+    const row = el("div", "filter-sub-row");
+    row.setAttribute("role", "group");
+    row.setAttribute("aria-label", `Show paintings by ${developer} model`);
+    row.append(el("span", "filter-sub-label", developer));
+    for (const model of list) {
+      row.append(filterChip(`${model} (${counts.get(model) || 0})`, models.has(model), () => {
+        if (!models.delete(model)) models.add(model);
+        renderGallery();
+      }, modelColours.get(model)));
+    }
+    rows.push(row);
+  }
+  $("filter-submodels").replaceChildren(...rows);
+  $("filter-submodels").hidden = rows.length === 0;
 
   const fav = $("filter-favourites");
   fav.innerHTML = STAR_SVG;

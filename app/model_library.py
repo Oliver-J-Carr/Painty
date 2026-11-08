@@ -6,7 +6,10 @@ older paintings made with it stay priced.
 
 The catalogue is OpenRouter's public model list (no key needed), kept to the models
 Painty can use, and cached for an hour. Each fetch refreshes the saved prices,
-because costs always use the current prices, as with those set in .env.
+because costs always use the current prices, as with those set in .env. It is asked
+for in order of popularity, because OpenRouter gives no popularity number: a model's
+place in the list is all there is. Scores from Artificial Analysis and Design Arena
+come with it, for the models that have them.
 """
 
 from __future__ import annotations
@@ -14,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import time
 import urllib.error
 import urllib.request
@@ -24,10 +28,11 @@ from .pricing import Price, Prices, price_var
 
 log = logging.getLogger("painty")
 
-CATALOGUE_URL = "https://openrouter.ai/api/v1/models"
+CATALOGUE_URL = "https://openrouter.ai/api/v1/models?sort=most-popular"
 CATALOGUE_TTL = 3600  # seconds
 RESPONSES_ENDPOINT = "/api/v1/responses"
 MAX_DESCRIPTION = 400
+DESIGN_ARENA_RATING = ("models", "svg")  # its arena and category
 
 
 class CatalogueError(Exception):
@@ -41,6 +46,29 @@ def _per_million(value) -> float | None:
     except (TypeError, ValueError):
         return None
     return price if price >= 0 and price == price and price != float("inf") else None
+
+
+def _number(value) -> float | int | None:
+    """A score as sent, or None if it's missing or isn't a real number."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return value if math.isfinite(value) else None
+
+
+def _benchmarks(raw: dict) -> dict:
+    """The third-party scores Painty sorts by, each None when the model doesn't have it.
+    Design Arena rates a model per category with no overall number. SVG is the closest
+    to painting from code."""
+    scores = raw.get("benchmarks")
+    scores = scores if isinstance(scores, dict) else {}
+    analysis = scores.get("artificial_analysis")
+    analysis = analysis if isinstance(analysis, dict) else {}
+    arena = scores.get("design_arena")
+    svg = next((e.get("elo") for e in (arena if isinstance(arena, list) else [])
+                if isinstance(e, dict) and (e.get("arena"), e.get("category")) == DESIGN_ARENA_RATING), None)
+    return {"intelligence": _number(analysis.get("intelligence_index")),
+            "agentic": _number(analysis.get("agentic_index")),
+            "design_arena_svg": _number(svg)}
 
 
 def parse_model(raw: dict) -> dict | None:
@@ -72,14 +100,17 @@ def parse_model(raw: dict) -> dict | None:
         "created": raw.get("created") or 0,
         "context_length": raw.get("context_length") or 0,
         "price": [p_in, p_in if p_cached is None else p_cached, p_out, p_in if p_write is None else p_write],
+        "benchmarks": _benchmarks(raw),
     }
 
 
 def parse_catalogue(raw: dict) -> list[dict]:
+    """The usable models, most popular first, each with its place among them (popularity)."""
     data = raw.get("data") if isinstance(raw, dict) else None
     if not isinstance(data, list):
         raise CatalogueError("OpenRouter's model list wasn't in the expected form.")
-    return [m for m in map(parse_model, data) if m]
+    usable = [m for m in map(parse_model, data) if m]
+    return [{**m, "popularity": place} for place, m in enumerate(usable, start=1)]
 
 
 def fetch_catalogue() -> dict:

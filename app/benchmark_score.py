@@ -55,6 +55,7 @@ COLOUR_TOLERANCE = 40    # 0-255: the most any channel may differ for colours to
 EDGE_TOLERANCE = 1       # px: how far off an edge may be before it counts as wrong
 MAX_SHIFT = 32           # px: the widest offset searched
 COARSE = 4               # px: the first pass of the offset search
+COMPARISON_CARD = "combined"  # the card used to compare models: it tests every level
 SCORER_VERSION = 2       # saved with each score: bump it when the scoring changes
 
 Box = tuple[int, int, int, int]
@@ -219,6 +220,23 @@ def score_painting(card_png: bytes, svg: str, card: dict) -> tuple[CardScore, by
 def record(result: CardScore) -> dict:
     """The score as saved in meta.json (benchmark_score)."""
     return {**asdict(result), "scorer": SCORER_VERSION}
+
+
+def best_scores(items: list[dict], card: str = COMPARISON_CARD) -> dict[str, dict]:
+    """Each model's best score on one card, and its number of scored runs, from the
+    gallery's metas. One card, because cards differ in difficulty. The best, not the
+    mean, because many runs are deliberately handicapped (no vision, say). Scores from
+    an older scorer are left out, because they aren't comparable."""
+    best: dict[str, dict] = {}
+    for meta in items:
+        score = meta.get("benchmark_score") or {}
+        model = (meta.get("settings") or {}).get("model")
+        if not model or meta.get("benchmark") != card or score.get("scorer") != SCORER_VERSION:
+            continue
+        entry = best.setdefault(model, {"best": score["score"], "runs": 0})
+        entry["best"] = max(entry["best"], score["score"])
+        entry["runs"] += 1
+    return best
 
 
 def _folder_inputs(folder: Path) -> tuple[bytes, str, dict]:

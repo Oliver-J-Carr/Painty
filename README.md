@@ -22,7 +22,7 @@ It's an experiment in agent adaptation. The agent can't fall back on SVG or CSS 
 - **Replay.** Press Replay on a gallery painting and it's painted again on the studio canvas, shape by shape, with each batch's note, every look and any plan appearing in the feed at the point it happened. Speed it up to 2×, 4×, 8× or 16× while it plays (remembered in your browser), or skip to the end at any time.
 - **Keep going.** When the shapes run out, or Painty wants to look with no looks left, the drawing pauses and asks how many shapes and looks to add. Type the amounts and the agent carries on exactly where it stopped.
 - **Watch it work.** Shapes appear live, layer by layer. A feed shows every batch, the agent's notes, and a thumbnail of everything it looked at.
-- **Gallery.** Every finished painting is saved with its prompt, settings, shapes, looks, token use and its cost (billed by OpenRouter, or estimated from prices), ready to compare or share. Step through a snapshot of every stage (one per paint call): the stages the agent looked at are marked with an eye, and can switch to exactly what it saw, grid and all. Each model has its own colour, and you can star your favourites. Filters for models, favourites and benchmark paintings stack, and each one's count shows how many paintings it would add to what's showing.
+- **Gallery.** Every finished painting is saved with its prompt, settings, shapes, looks, token use and its cost (billed by OpenRouter, or estimated from prices), ready to compare or share. Step through a snapshot of every stage (one per paint call): the stages the agent looked at are marked with an eye, and can switch to exactly what it saw, grid and all. Each model has its own colour, and you can star your favourites. Filters for developers, favourites and benchmark paintings stack, and each one's count shows how many paintings it would add to what's showing. Choosing a developer shows its models as sub-filters.
 - **Full tracing.** Every drawing appears in the OpenAI Traces dashboard.
 
 ## Tech stack
@@ -82,6 +82,14 @@ Painty can run a model two ways, and you can use both side by side:
 - **Through OpenRouter**, for any model id with a `/` in it, such as `google/gemma-4-31b-it` or `anthropic/claude-sonnet-5.5`. Needs `OPENROUTER_API_KEY`.
 
 To add an OpenRouter model, click **Browse OpenRouter models** in the New painting dialog, search, and click **Add**. Its prices come with it, so it needs nothing in `.env`. The browser lists only models that can see images, call tools and use OpenRouter's Responses API. Added models are saved in `models.json` in the data folder.
+
+You can sort the list by newest, most popular, cheapest or name, and by score:
+
+- **Intelligence** and **Agentic**: the Artificial Analysis indices.
+- **Design Arena (SVG)**: the model's ELO in Design Arena's SVG category.
+- **Painty score**: the model's best score on your own runs of the combined benchmark card.
+
+Many models have no third-party score, and those go last.
 
 `gpt-6-luna` and `openai/gpt-6-luna` count as two models, so you can compare the two routes.
 

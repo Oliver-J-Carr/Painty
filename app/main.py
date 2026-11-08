@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from . import __version__
 from .config import settings
 from .benchmark import CARDS, card_png, card_text
+from .benchmark_score import best_scores
 from .exemplar import SHEETS, exemplar_text, exemplar_views
 from .gallery import Gallery, settings_dict
 from .model_library import CatalogueError, ModelLibrary
@@ -124,7 +125,8 @@ async def openrouter_models() -> dict:
     except CatalogueError as exc:
         raise HTTPException(502, str(exc)) from exc
     return {"models": models, "added": app.state.library.offered(),
-            "has_key": bool(settings.openrouter_api_key)}
+            "has_key": bool(settings.openrouter_api_key),
+            "painty_scores": best_scores(app.state.gallery.list())}
 
 
 @app.post("/api/models")

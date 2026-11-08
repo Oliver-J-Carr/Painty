@@ -212,8 +212,13 @@
         <input type="search" id="browser-search" placeholder="Search, for example “gemma 31b”" aria-label="Search models">
         <label>Sort <select id="browser-sort">
           <option value="newest">Newest</option>
+          <option value="popular">Most popular</option>
           <option value="cheapest">Cheapest</option>
           <option value="name">Name</option>
+          <option value="intelligence">Intelligence</option>
+          <option value="agentic">Agentic</option>
+          <option value="design">Design Arena (SVG)</option>
+          <option value="painty">Painty score</option>
         </select></label>
         <label class="toggle"><input type="checkbox" id="browser-free"> Free only</label>
         <label class="toggle"><input type="checkbox" id="browser-added"> Added only</label>
@@ -234,10 +239,11 @@
         </div>
       </div>
       <div class="gallery-filters" id="gallery-filters" hidden>
-        <div class="filter-chips" id="filter-models" role="group" aria-label="Show paintings by model"></div>
+        <div class="filter-chips" id="filter-models" role="group" aria-label="Show paintings by developer"></div>
         <button type="button" class="filter-chip fav-chip" id="filter-favourites" aria-pressed="false"></button>
         <button type="button" class="filter-chip bench-chip" id="filter-benchmarks" aria-pressed="false"></button>
         <span class="filter-count" id="filter-count" aria-live="polite"></span>
+        <div class="filter-sub" id="filter-submodels" hidden></div>
       </div>
       <div class="gallery-body" id="gallery-body">
         <div id="gallery-grid" class="gallery-grid"></div>
