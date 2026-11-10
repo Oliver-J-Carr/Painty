@@ -500,6 +500,7 @@ function handle(e) {
       setTopUpLimits(e.options.top_up_limits);
       configuredModels = e.options.models;
       hasOpenRouterKey = Boolean(e.options.openrouter_key);
+      refreshModelInfo();
       canvases = e.canvases;
       setupBenchmarks(e.benchmarks || [], e.benchmark_prompt || "");
       for (const [name, [w, h]] of Object.entries(canvases)) {
@@ -543,7 +544,8 @@ function updatePaintButton() {
   const length = $("prompt").value.length;
   $("prompt-count").textContent = String(length);
   const asked = $("prompt").value.trim() || refUrl;
-  $("paint").disabled = !asked || state === "connecting" || state === "painting";
+  const blindWithImage = Boolean(refUrl) && textOnly();
+  $("paint").disabled = !asked || blindWithImage || state === "connecting" || state === "painting";
 }
 
 function openNewPainting() {
@@ -600,6 +602,7 @@ function refError(text) {
 }
 
 async function setReference(file) {
+  if (textOnly()) { refError(TEXT_ONLY_REFERENCE); return; }
   dropBenchmark(true);
   refError("");
   if (!file || !file.type.startsWith("image/")) { refError("That isn't an image."); return; }
@@ -834,26 +837,70 @@ const GRID_NAMES = { frame: "Ruler frame", overlay: "Grid on the image", none: "
 function fillModelSelect(models) {
   const select = $("set-model");
   const chosen = select.value;
+  const option = (m) => new Option(capsOf(m)?.vision === false ? `${m} (text only)` : m, m);
   const group = (label, list) => {
     const g = document.createElement("optgroup");
     g.label = label;
-    g.append(...list.map((m) => new Option(m, m)));
+    g.append(...list.map(option));
     return g;
   };
   const routed = models.filter((m) => m.includes("/"));
   const direct = models.filter((m) => !m.includes("/"));
   select.replaceChildren(...(routed.length
     ? [direct.length ? group("OpenAI (direct)", direct) : null, group("OpenRouter", routed)].filter(Boolean)
-    : direct.map((m) => new Option(m, m))));
+    : direct.map(option)));
   if (models.includes(chosen)) select.value = chosen;
 }
 
+// ---- what each model can do, from OpenRouter's catalogue (via /api/models/info): whether it
+// can see images, and which reasoning efforts it takes, with its default marked "(default)".
+// A model with nothing known yet gets the old choices. One that can't reason is locked.
+let modelInfo = {}; // model id -> {vision, reasoning: {options: [[value, label]], default}} or null
+const UNKNOWN_REASONING = { default: "", options: [["", "Model default"], ["low", "Low"], ["medium", "Medium"], ["high", "High"]] };
+const TEXT_ONLY_REFERENCE = "This model can't see images, so it can't work from a reference image "
+  + "or a benchmark card. Choose a model that can see to use one.";
+const capsOf = (model) => modelInfo[model] || null;
+const textOnly = () => capsOf($("set-model").value)?.vision === false;
+// A text-only model can't have vision or the exemplar. Your own choices are kept aside while
+// it's chosen (never sent), and come back when you choose a model that can see.
+const SIGHT = ["vision", "exemplar"];
+let ownSight = null; // {vision, exemplar}, while a text-only model holds the toggles
+
+function fillEffort(select, reasoning, keep) {
+  const { options, default: fallback } = reasoning;
+  if (!options.length) {
+    select.replaceChildren(new Option("Unsupported", ""));
+    return;
+  }
+  select.replaceChildren(...options.map(([value, label]) => new Option(label, value)));
+  select.value = keep !== null && options.some(([value]) => value === keep) ? keep : fallback;
+}
+
+// Fit the dialog to the chosen model. reset: choose the model's default effort for both reasoning
+// and planning, whether planning is on or not (a new model was
+// picked), rather than keep the current one when the model takes it (loading saved settings).
+function applyModel(model, reset) {
+  const caps = capsOf(model);
+  const reasoning = caps?.reasoning || UNKNOWN_REASONING;
+  fillEffort($("set-effort"), reasoning, reset ? null : $("set-effort").value);
+  fillEffort($("set-planning-effort"), reasoning, reset ? null : $("set-planning-effort").value);
+  if (caps?.vision === false) {
+    if (!ownSight) ownSight = Object.fromEntries(SIGHT.map((n) => [n, settingInput(n).checked]));
+    for (const n of SIGHT) settingInput(n).checked = false;
+    if (refUrl) refError(TEXT_ONLY_REFERENCE);
+  } else if (ownSight) {
+    for (const n of SIGHT) settingInput(n).checked = ownSight[n];
+    ownSight = null;
+    refError("");
+  }
+  $("sight-note").hidden = !ownSight;
+  syncLooksInput();
+  updatePaintButton();
+}
+
 function setupSettings(options, values) {
+  modelInfo = options.model_info || {};
   fillModelSelect(options.models);
-  const effort = $("set-effort");
-  const effortName = (v) => (v ? v[0].toUpperCase() + v.slice(1) : "Model default");
-  effort.replaceChildren(...options.reasoning_efforts.map((v) => new Option(effortName(v), v)));
-  $("set-planning-effort").replaceChildren(...options.reasoning_efforts.map((v) => new Option(effortName(v), v)));
   $("set-grid").replaceChildren(...options.grids.map((v) => new Option(GRID_NAMES[v] || v, v)));
   for (const [name, [lo, hi]] of Object.entries(options.limits)) {
     const input = settingInput(name);
@@ -888,8 +935,17 @@ function releaseBudget() {
 }
 
 function fillSettings(values) {
+  // The model first, so the efforts on offer and the vision toggles fit it before they're filled.
+  if ("model" in values) {
+    settingInput("model").value = values.model;
+    applyModel(settingInput("model").value, false);
+  }
   for (const [name, value] of Object.entries(values)) {
+    if (name === "model") continue;
     if (ownBudget && CARD_BUDGET.includes(name)) { ownBudget[name] = value; continue; }
+    if (ownSight && SIGHT.includes(name)) { ownSight[name] = Boolean(value); continue; }
+    if (["reasoning_effort", "planning_effort"].includes(name)
+        && ![...settingInput(name).options].some((o) => o.value === value)) continue; // not this model's
     const input = settingInput(name);
     if (!input) continue;
     if (input.type === "checkbox") input.checked = Boolean(value);
@@ -902,6 +958,7 @@ function readSettings() {
   const out = {};
   for (const input of settingInputs()) {
     if (ownBudget && CARD_BUDGET.includes(input.dataset.setting)) continue; // the card's, not yours
+    if (ownSight && SIGHT.includes(input.dataset.setting)) continue; // the model's, not yours
     out[input.dataset.setting] = input.type === "checkbox" ? input.checked
       : input.type === "number" ? Number(input.value) : input.value;
   }
@@ -912,7 +969,13 @@ function readSettings() {
 // card holds both budgets. The planning effort only matters with planning on.
 function syncLooksInput() {
   const blind = !settingInput("vision").checked;
-  settingInput("planning_effort").disabled = settingsLocked || !settingInput("planning").checked;
+  const cantReason = !capsOf(settingInput("model").value) ? false
+    : !capsOf(settingInput("model").value).reasoning?.options.length;
+  settingInput("reasoning_effort").disabled = settingsLocked || cantReason;
+  settingInput("planning_effort").disabled = settingsLocked || cantReason || !settingInput("planning").checked;
+  for (const n of SIGHT) settingInput(n).disabled = settingsLocked || Boolean(ownSight);
+  $("ref-pick").disabled = Boolean(ownSight);
+  $("benchmark-pick").disabled = Boolean(ownSight);
   settingInput("shape_budget").disabled = settingsLocked || Boolean(ownBudget);
   settingInput("look_budget").disabled = settingsLocked || Boolean(ownBudget) || blind;
   $("looks-note").hidden = !blind;
@@ -923,6 +986,9 @@ function lockSettings(locked) {
   for (const input of settingInputs()) input.disabled = locked;
   syncLooksInput();
 }
+
+// Choosing a model chooses its default effort (before the change below is saved).
+settingInput("model").addEventListener("change", () => applyModel(settingInput("model").value, true));
 
 document.addEventListener("change", (ev) => {
   if (!ev.target.dataset?.setting) return;
@@ -1007,16 +1073,35 @@ function modelFacts(m) {
   return [...prices, contextSize(m.context_length)].filter(Boolean).join(" · ");
 }
 
+function modelAbilities(m) {
+  const efforts = m.reasoning.options.map(([, label]) => label);
+  return efforts.length ? `Reasoning: ${efforts.join(", ")}` : "No reasoning";
+}
+
+// An eye for a model that can see images, a crossed-out eye for a text-only one. The same
+// crossed-out eye marks the note about a text-only model in the New painting dialog.
+function sightChip(m) {
+  const chip = el("span", `sight-chip ${m.vision ? "sees" : "blind"}`);
+  chip.innerHTML = m.vision ? EYE_SVG : EYE_OFF_SVG;
+  chip.append(m.vision ? "Sees images" : "Text only");
+  chip.title = m.vision ? "Can see images: it can look at the canvas, and use the exemplar and reference images"
+    : "Can't see images: it paints blind, with no exemplar, reference image or benchmark card";
+  return chip;
+}
+
 function modelRow(m, scoreSort) {
   const row = el("li", "model-row");
   row.title = m.description;
   const main = el("div");
-  main.append(el("span", "model-name", m.name), el("code", "model-id", m.id), el("p", "model-facts", modelFacts(m)));
+  const name = el("div", "model-title");
+  name.append(el("span", "model-name", m.name), sightChip(m));
+  main.append(name, el("code", "model-id", m.id), el("p", "model-facts", modelFacts(m)));
   if (scoreSort) {
     const score = scoreSort.value(m);
     main.append(score == null ? el("p", "model-score none", scoreSort.missing)
       : el("p", "model-score", scoreSort.text(score, m)));
   }
+  main.append(el("p", "model-facts", modelAbilities(m)));
   if (isFree(m)) main.append(el("p", "field-help", "Free models have rate limits, and some may keep your prompts and images."));
   const added = addedModels.has(m.id);
   const button = el("button", "ghost-dark", added ? "Remove" : "Add");
@@ -1037,10 +1122,11 @@ function renderBrowser() {
   const shown = catalogue
     .filter((m) => words.every((w) => `${m.id} ${m.name}`.toLowerCase().includes(w)))
     .filter((m) => !$("browser-free").checked || isFree(m))
+    .filter((m) => !$("browser-vision").checked || m.vision)
     .filter((m) => !$("browser-added").checked || addedModels.has(m.id))
     .sort(scoreSort ? byScore(scoreSort) : sorters[$("browser-sort").value]);
   const scored = scoreSort ? shown.filter((m) => scoreSort.value(m) != null).length : shown.length;
-  $("browser-status").textContent = `Showing ${shown.length} of ${catalogue.length} models that can see images and call tools.`
+  $("browser-status").textContent = `Showing ${shown.length} of ${catalogue.length} models that can call tools.`
     + (scored < shown.length ? ` ${scored} have ${scoreSort.have}, listed first.` : "");
   $("browser-list").replaceChildren(...shown.map((m) => modelRow(m, scoreSort)));
 }
@@ -1077,10 +1163,12 @@ async function changeModel(id, add, button) {
     if (!res.ok) throw new Error(body.detail || "That didn't work.");
     configuredModels = body.models;
     addedModels = new Set(body.added);
+    modelInfo = body.model_info || {};
     fillModelSelect(body.models);
     savedSettings = body.settings;
     if (add) {
       $("set-model").value = id;
+      applyModel(id, true);
       if (!rerunning) send({ type: "settings", settings: readSettings() });
     } else if (!body.models.includes($("set-model").value)) {
       fillSettings({ model: body.settings.model });
@@ -1092,10 +1180,25 @@ async function changeModel(id, add, button) {
   }
 }
 
+// Each model's capabilities, once OpenRouter's catalogue is in hand. Until then, saved ones.
+async function refreshModelInfo() {
+  try {
+    const res = await fetch("/api/models/info");
+    if (!res.ok) return;
+    updateModelInfo((await res.json()).model_info);
+  } catch { /* the dialog keeps what it has */ }
+}
+
+function updateModelInfo(info) {
+  modelInfo = info || {};
+  fillModelSelect(configuredModels);
+  applyModel(settingInput("model").value, false);
+}
+
 $("browse-models").addEventListener("click", openBrowser);
 $("close-browser").addEventListener("click", () => browser.close());
 browser.addEventListener("click", (ev) => { if (ev.target === browser) browser.close(); });
-for (const id of ["browser-search", "browser-free", "browser-added", "browser-sort"]) {
+for (const id of ["browser-search", "browser-free", "browser-vision", "browser-added", "browser-sort"]) {
   $(id).addEventListener("input", renderBrowser);
 }
 
@@ -1408,6 +1511,7 @@ function scoreItems(m, base) {
 let gridScroll = 0; // where the grid was scrolled to, restored by "Back to all paintings"
 let stepStage = null; // (+1 or -1) => void while a detail with stages is open; arrow keys use it
 
+const EYE_OFF_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M1.5 12S5.5 4.5 12 4.5 22.5 12 22.5 12 18.5 19.5 12 19.5 1.5 12 1.5 12Z" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/><circle cx="12" cy="12" r="3.6" fill="currentColor"/><path d="M3.5 3.5 20.5 20.5" stroke="var(--paper)" stroke-width="5" stroke-linecap="round"/><path d="M3.5 3.5 20.5 20.5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>';
 const EYE_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M1.5 12S5.5 4.5 12 4.5 22.5 12 22.5 12 18.5 19.5 12 19.5 1.5 12 1.5 12Z" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/><circle cx="12" cy="12" r="3.6" fill="currentColor"/></svg>';
 
 function eyeBadge() {

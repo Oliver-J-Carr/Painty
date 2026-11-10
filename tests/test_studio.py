@@ -1353,3 +1353,88 @@ def test_an_openrouter_model_with_no_key_is_refused_clearly(tmp_path, monkeypatc
 
     assert "OPENROUTER_API_KEY" in types(events, "error")[0]["text"]
     assert studio.state == "idle" and studio.task is None
+
+
+
+# ------------------------------------------------------------------ fitted to the model
+def capable_studio(tmp_path, caps, steps=(), **settings):
+    """A studio whose model has the given capabilities (vision, reasoning)."""
+    events = []
+
+    async def send(event):
+        events.append(event)
+    store = SettingsStore(tmp_path / "settings.json", ("fake-model",))
+    store.update(settings)
+    library = SimpleNamespace(capabilities=lambda model: caps, model_info=lambda: {"fake-model": caps},
+                              prices=lambda: {})
+    studio = Studio(send, store, Gallery(tmp_path / "gallery"), model=ScriptedModel(list(steps)), library=library)
+    return studio, events
+
+
+TEXT_ONLY = {"vision": False, "reasoning": {"options": [["low", "Low"], ["high", "High (default)"]], "default": "high"}}
+
+
+def test_a_text_only_model_paints_blind_without_the_exemplar_and_keeps_your_settings(tmp_path):
+    steps = [[paint([rect(0, 0, 512, 512)], "c1")], [finish("c2")]]
+    studio, events = capable_studio(tmp_path, TEXT_ONLY, steps, vision=True, exemplar=True, reasoning_effort="medium")
+    assert studio.hello()["options"]["model_info"] == {"fake-model": TEXT_ONLY}
+
+    async def go():
+        await studio.start("a blue square")
+        await _wait(studio)
+    run(go)
+
+    s = studio.ctx.settings
+    assert (s.vision, s.exemplar, s.reasoning_effort) == (False, False, "high")
+    assert studio.ctx.exemplar == () and studio.ctx.budget.looks_total == 0
+    assert any(e.get("text", "").startswith("⚙️ Fitted to") for e in types(events, "activity"))
+    saved = studio.store.current  # this drawing only
+    assert (saved.vision, saved.exemplar, saved.reasoning_effort) == (True, True, "medium")
+
+
+def test_a_text_only_model_refuses_a_reference_or_a_benchmark(tmp_path):
+    studio, events = capable_studio(tmp_path, TEXT_ONLY)
+    png = io.BytesIO()
+    Image.new("RGB", (512, 512), "red").save(png, "PNG")
+    url = "data:image/png;base64," + base64.b64encode(png.getvalue()).decode()
+
+    async def go():
+        await studio.start("", reference=url)
+        await studio.start("copy it", benchmark="basic")
+    run(go)
+
+    errors = [e["text"] for e in types(events, "error")]
+    assert len(errors) == 2 and all("can't see images" in t for t in errors)
+    assert studio.state == "idle" and studio.task is None
+
+
+def test_a_model_that_cant_reason_is_sent_no_effort(tmp_path):
+    steps = [[paint([rect(0, 0, 512, 512)], "c1")], [finish("c2")]]
+    studio, _ = capable_studio(tmp_path, {"vision": True, "reasoning": {"options": [], "default": ""}}, steps,
+                               reasoning_effort="medium", planning_effort="high")
+
+    async def go():
+        await studio.start("a blue square")
+        await _wait(studio)
+    run(go)
+
+    assert (studio.ctx.settings.reasoning_effort, studio.ctx.settings.planning_effort) == ("", "")
+    assert studio.agent.model_settings.reasoning is None
+
+
+def test_an_effort_the_model_takes_is_kept_and_unknown_models_are_left_alone(tmp_path):
+    steps = [[paint([rect(0, 0, 512, 512)], "c1")], [finish("c2")]]
+    studio, events = capable_studio(tmp_path / "a", {"vision": True, "reasoning": {
+        "options": [["medium", "Medium (default)"], ["max", "Max"]], "default": "medium"}}, steps,
+        reasoning_effort="max", planning_effort="medium")
+    unknown, _ = capable_studio(tmp_path / "b", None, steps, reasoning_effort="max")
+
+    async def go():
+        for s in (studio, unknown):
+            await s.start("a blue square")
+            await _wait(s)
+    run(go)
+
+    assert studio.ctx.settings.reasoning_effort == "max" and unknown.ctx.settings.reasoning_effort == "max"
+    assert studio.agent.model_settings.reasoning.effort == "max"
+    assert not any(e.get("text", "").startswith("⚙️") for e in types(events, "activity"))

@@ -259,6 +259,20 @@ button, input, select, textarea { font: inherit; }
 .model-row > div { min-width: 0; }
 .model-row .ghost-dark { flex: none; padding: 5px 12px; font-size: 14px; }
 .model-name { font-weight: 700; overflow-wrap: anywhere; }
+.model-title { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+/* Can this model see? An eye, or a crossed-out eye, in the browser and the New painting dialog. */
+.sight-chip {
+  display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px 2px 6px; border-radius: 999px;
+  font-size: 12px; font-weight: 700; line-height: 1.4; white-space: nowrap;
+}
+.sight-chip svg { width: 16px; height: 16px; flex: none; }
+.sight-chip.sees { background: rgba(63, 143, 95, 0.14); color: var(--ok); }
+.sight-chip.blind { background: rgba(214, 73, 51, 0.13); color: var(--vermilion); }
+.sight-note {
+  display: flex; align-items: flex-start; gap: 10px; margin: 10px 0 0; padding: 8px 12px; border-radius: var(--radius);
+  background: rgba(214, 73, 51, 0.1); color: var(--graphite); font-size: 13px;
+}
+.sight-note svg { width: 22px; height: 22px; flex: none; color: var(--vermilion); }
 .model-id { display: block; font-size: 12px; color: var(--graphite-soft); overflow-wrap: anywhere; }
 .model-facts { margin: 2px 0 0; font-size: 13px; }
 .model-score { margin: 2px 0 0; font-size: 13px; font-weight: 600; }

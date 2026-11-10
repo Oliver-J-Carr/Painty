@@ -116,6 +116,7 @@ class Studio:
                 "settings": settings_dict(self.store.current),
                 "options": {**self.store.options(),
                             "openrouter_key": bool(env.openrouter_api_key),
+                            "model_info": self.library.model_info() if self.library else {},
                             "top_up_limits": {k: list(v) for k, v in TOP_UP_LIMITS.items()}},
                 "benchmarks": card_list(), "benchmark_prompt": BENCHMARK_PROMPT}
 
@@ -144,6 +145,11 @@ class Studio:
         if self.model is None and is_openrouter(chosen) and not env.openrouter_api_key:
             await self._error(f"{chosen} runs through OpenRouter. Set OPENROUTER_API_KEY in .env first.")
             return
+        caps = self.library.capabilities(chosen) if self.library else None
+        if caps and not caps["vision"] and (reference or benchmark):
+            await self._error(f"{chosen} can't see images, so it can't work from a reference image "
+                              "or a benchmark card. Remove it, or choose a model that can see.")
+            return
 
         canvas = Canvas(CARDS[benchmark].shape if benchmark else shape)  # unknown shapes: square
         ref = view = None
@@ -155,7 +161,7 @@ class Studio:
             except ValueError as exc:
                 await self._error(str(exc))
                 return
-        s = self.store.current
+        s, adjusted = _fit_model(self.store.current, caps)
         if benchmark:  # this drawing only: the saved settings keep your own budgets
             card = CARDS[benchmark]
             s = dataclasses.replace(s, shape_budget=card.shape_budget, look_budget=card.look_budget)
@@ -180,6 +186,8 @@ class Studio:
                                 f"{s.model}, vision {'on' if s.vision else 'off'}, "
                                 f"{canvas.shape} {canvas.width} × {canvas.height}"
                                 + (", with a reference image" if prompt and ref else ""))
+        if adjusted:
+            await self.ctx.activity("agent", f"⚙️ Fitted to {s.model}", " ".join(adjusted))
         if exemplar:
             await self.ctx.activity("agent", "📐 The exemplar sheets Painty was shown",
                                     f"{len(exemplar)} sheets of numbered examples, before your prompt",
@@ -409,6 +417,28 @@ class Studio:
             await coro
         except Exception:
             pass
+
+
+def _fit_model(s, caps: dict | None):
+    """A drawing's settings fitted to what its model can do, and what changed. This drawing
+    only: the saved settings keep your own values for the next model. A text-only model
+    paints blind with no exemplar sheets, and an effort the model doesn't take becomes its
+    default. Unknown capabilities (OpenRouter's catalogue not fetched) change nothing."""
+    if not caps:
+        return s, []
+    adjusted = []
+    if not caps["vision"] and (s.vision or s.exemplar):
+        s = dataclasses.replace(s, vision=False, exemplar=False)
+        adjusted.append("It can't see images, so it paints blind, without the exemplar sheets.")
+    reasoning = caps.get("reasoning") or {"options": [], "default": ""}
+    allowed = {value for value, _ in reasoning["options"]} or {""}
+    for name in ("reasoning_effort", "planning_effort"):
+        if getattr(s, name) not in allowed:
+            s = dataclasses.replace(s, **{name: reasoning["default"]})
+            what = "reasoning effort" if name == "reasoning_effort" else "planning effort"
+            adjusted.append(f"Its {what} is its default, as it doesn't take the one chosen."
+                            if reasoning["options"] else f"It can't reason, so no {what} is sent.")
+    return s, adjusted
 
 
 def _first_message(prompt: str, reference_view: bytes | None, exemplar: tuple[bytes, ...] = ()):

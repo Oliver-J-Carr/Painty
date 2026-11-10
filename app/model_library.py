@@ -5,7 +5,8 @@ nothing in .env. A removed model is hidden, not forgotten: it keeps its price, s
 older paintings made with it stay priced.
 
 The catalogue is OpenRouter's public model list (no key needed), kept to the models
-Painty can use, and cached for an hour. Each fetch refreshes the saved prices,
+Painty can use, and cached for an hour. Each fetch refreshes the saved prices and
+capabilities (whether a model can see images, and its reasoning efforts),
 because costs always use the current prices, as with those set in .env. It is asked
 for in order of popularity, because OpenRouter gives no popularity number: a model's
 place in the list is all there is. Scores from Artificial Analysis and Design Arena
@@ -33,6 +34,14 @@ CATALOGUE_TTL = 3600  # seconds
 RESPONSES_ENDPOINT = "/api/v1/responses"
 MAX_DESCRIPTION = 400
 DESIGN_ARENA_RATING = ("models", "svg")  # its arena and category
+
+
+# Reasoning efforts in OpenRouter's order, lowest first, and how the dialog names them.
+EFFORT_ORDER = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
+EFFORT_NAMES = {"none": "Off", "minimal": "Minimal", "low": "Low", "medium": "Medium", "high": "High",
+                "xhigh": "Extra high", "max": "Max"}
+# For a model that reasons but lists no efforts, OpenRouter turns these into a thinking budget.
+BUDGET_EFFORTS = ("low", "medium", "high")
 
 
 class CatalogueError(Exception):
@@ -71,13 +80,47 @@ def _benchmarks(raw: dict) -> dict:
             "design_arena_svg": _number(svg)}
 
 
+def _label(value: str, default: str, reasons_by_default: bool) -> str:
+    name = EFFORT_NAMES.get(value) or ("On" if reasons_by_default else "Off")
+    return name + (" (default)" if value == default else "")
+
+
+def reasoning_options(raw: dict) -> dict:
+    """The reasoning efforts a model takes, as the dialog offers them:
+    {"options": [[value, label], ...], "default": value}. No options means it can't reason.
+
+    Most models list their efforts and a default. A value of "" sends no effort at all,
+    so the model does what it does by default: for a model that reasons but lists no
+    efforts (OpenRouter turns low, medium and high into a thinking budget for those),
+    and for one that doesn't reason unless asked but can't be sent "none". A model
+    that must reason is never offered "none".
+    """
+    params = raw.get("supported_parameters") if isinstance(raw.get("supported_parameters"), list) else []
+    if "reasoning" not in params:
+        return {"options": [], "default": ""}
+    info = raw.get("reasoning") if isinstance(raw.get("reasoning"), dict) else {}
+    mandatory = bool(info.get("mandatory"))
+    on = mandatory or info.get("default_enabled") is not False
+    listed = info.get("supported_efforts") if isinstance(info.get("supported_efforts"), list) else []
+    efforts = [e for e in EFFORT_ORDER if e in listed and not (mandatory and e == "none")]
+    if efforts:
+        default = info.get("default_effort") if on else "none"
+        if default not in efforts:  # off by default with no "none" to send, or no default given
+            efforts, default = [""] + efforts, ""
+    else:
+        efforts = [""] + ([] if mandatory or not on else ["none"]) + list(BUDGET_EFFORTS)
+        default = ""
+    return {"options": [[e, _label(e, default, on)] for e in efforts], "default": default}
+
+
 def parse_model(raw: dict) -> dict | None:
     """One catalogue entry as Painty keeps it, or None if Painty can't use the model.
 
-    It must take images (looks, the exemplar and references need them), call tools
-    and have a Responses endpoint (the :batch variants don't). A negative price marks
-    a router such as openrouter/auto, whose price depends on the model it picks. A
-    missing cached or cache write price is the input price, as in pricing.parse_price.
+    It must call tools and have a Responses endpoint (the :batch variants don't). A
+    negative price marks a router such as openrouter/auto, whose price depends on the
+    model it picks. A missing cached or cache write price is the input price, as in
+    pricing.parse_price. A model that can't take images is kept, marked vision false:
+    it can only paint blind, with no exemplar sheets and no reference image.
     """
     try:
         model_id = raw["id"]
@@ -87,7 +130,7 @@ def parse_model(raw: dict) -> dict | None:
         has_endpoint = RESPONSES_ENDPOINT in raw["endpoints"]
     except (KeyError, TypeError):
         return None
-    if not (isinstance(model_id, str) and "/" in model_id and takes_images and calls_tools and has_endpoint):
+    if not (isinstance(model_id, str) and "/" in model_id and calls_tools and has_endpoint):
         return None
     p_in, p_out = _per_million(pricing.get("prompt")), _per_million(pricing.get("completion"))
     if p_in is None or p_out is None:
@@ -101,7 +144,15 @@ def parse_model(raw: dict) -> dict | None:
         "context_length": raw.get("context_length") or 0,
         "price": [p_in, p_in if p_cached is None else p_cached, p_out, p_in if p_write is None else p_write],
         "benchmarks": _benchmarks(raw),
+        "vision": takes_images,
+        "reasoning": reasoning_options(raw),
     }
+
+
+def capabilities(entry: dict) -> dict:
+    """What the New painting dialog needs to know about a model: whether it can see
+    images, and its reasoning efforts. Models saved before these were kept could all see."""
+    return {"vision": entry.get("vision", True), "reasoning": entry.get("reasoning")}
 
 
 def parse_catalogue(raw: dict) -> list[dict]:
@@ -130,7 +181,7 @@ class ModelLibrary:
         self.base_models = base_models
         self.env_prices = env_prices or {}
         self.fetch = fetch
-        self.saved = self._load()  # id -> {"name", "price", "offered"}
+        self.saved = self._load()  # id -> {"name", "price", "offered", "vision", "reasoning"}
         self._catalogue: list[dict] | None = None
         self._fetched_at = 0.0
         self._lock = asyncio.Lock()
@@ -172,6 +223,21 @@ class ModelLibrary:
             prices[price_var(model)] = p
         return {**prices, **self.env_prices}
 
+    def capabilities(self, model: str) -> dict | None:
+        """A model's capabilities, or None if they aren't known yet (the catalogue hasn't
+        been fetched, or it isn't on OpenRouter). A model run directly on OpenAI takes
+        them from the same model on OpenRouter (gpt-6-luna from openai/gpt-6-luna)."""
+        by_id = {m["id"]: m for m in self._catalogue or []}
+        found = by_id.get(model) or (None if "/" in model else by_id.get(f"openai/{model}"))
+        if found:
+            return capabilities(found)
+        entry = self.saved.get(model)
+        return capabilities(entry) if entry and entry.get("reasoning") else None
+
+    def model_info(self) -> dict[str, dict | None]:
+        """The capabilities of every model on offer, as far as they're known."""
+        return {m: self.capabilities(m) for m in self.models()}
+
     async def catalogue(self) -> list[dict]:
         """The usable models, cached. If a refresh fails, an older copy is still fine."""
         async with self._lock:
@@ -190,9 +256,11 @@ class ModelLibrary:
             return models
 
     def _refresh_prices(self, models: list[dict]) -> None:
+        """Saved models take the catalogue's current price and capabilities."""
         by_id = {m["id"]: m for m in models}
-        changed = {k: {**v, "price": by_id[k]["price"]} for k, v in self.saved.items()
-                   if k in by_id and v["price"] != by_id[k]["price"]}
+        fresh = {k: {**v, "price": by_id[k]["price"], **capabilities(by_id[k])}
+                 for k, v in self.saved.items() if k in by_id}
+        changed = {k: v for k, v in fresh.items() if v != self.saved[k]}
         if not changed:
             return
         self.saved = {**self.saved, **changed}
@@ -207,7 +275,8 @@ class ModelLibrary:
         found = next((m for m in await self.catalogue() if m["id"] == model_id), None)
         if found is None:
             raise ValueError(f"{model_id} isn't a model Painty can use on OpenRouter.")
-        saved = {**self.saved, model_id: {"name": found["name"], "price": found["price"], "offered": True}}
+        saved = {**self.saved, model_id: {"name": found["name"], "price": found["price"], "offered": True,
+                                          **capabilities(found)}}
         self._save(saved)
         self.saved = saved
 

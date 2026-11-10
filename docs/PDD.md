@@ -262,7 +262,7 @@ OpenRouter makes hundreds of models available through one API, including Claude,
 
 **The model library (`app/model_library.py`).** Prices and models were `.env` variables, which doesn't scale to hundreds. A browser in the New painting dialog lists OpenRouter's public catalogue (`GET /api/v1/models`, no key needed, cached for an hour), and adding a model saves it and its price to `DATA_DIR/models.json`.
 
-- Only models with image input, `tools` and the Responses endpoint are listed. That excludes `:batch` variants and text-only models, since looks, the exemplar and references need images. 208 of 461 qualify today. Negative prices mark routers such as `openrouter/auto`, which are left out because a comparison needs a known model.
+- Models with `tools` and the Responses endpoint are listed, which excludes the `:batch` variants: 317 of 461 on 10 Nov 2026. Of those, 212 take images and 105 are text-only. Text-only models were left out at first, since looks, the exemplar and references need images. They are now listed alongside the rest, each marked with an eye or a crossed-out eye, with a Sees images only filter (off by default) to hide them, because a model such as GLM 5.3 may still paint well blind (see Capabilities below). Negative prices mark routers such as `openrouter/auto`, which are left out because a comparison needs a known model.
 - `PAINTY_MODELS` still comes first, so the default doesn't change, and `PAINTY_PRICE_*` overrides the catalogue's price.
 - Removing a model hides it but keeps its price, so older paintings stay priced.
 - Prices refresh with the catalogue, in line with "costs use the current prices".
@@ -272,6 +272,16 @@ OpenRouter makes hundreds of models available through one API, including Claude,
 - **Most popular.** OpenRouter has no popularity number, only `sort=most-popular`. The catalogue is fetched in that order, which returns the same models as the unsorted list, so one request gives both, and a model's place among the usable models is its rank. Everything else is sorted in the browser.
 - **Intelligence, Agentic and Design Arena (SVG).** These come with each catalogue entry (`benchmarks`). Design Arena rates a model per category with no overall number, and SVG is the closest to painting from code. On 8 Nov 2026, of 208 usable models, 45 had an Intelligence score, 66 Agentic and 55 a Design Arena SVG rating. Models without the chosen score go last, in popularity order, and the status line says how many have it. These scores measure general ability, and nothing yet shows they predict good painting.
 - **Painty score.** The model's best score on your own runs of the combined card (`benchmark_score.best_scores`), measuring painting directly. One card, because cards differ in difficulty. The best rather than the mean, because many runs are deliberately handicapped (no vision, say), though it does favour models with more runs, so the row gives the count. Only scores from the current scorer count. A direct model such as `gpt-6-luna` isn't in OpenRouter's catalogue and `openai/gpt-6-luna` counts as a separate model, so direct runs don't show here.
+
+**Capabilities: what each model can see and how it reasons.** The catalogue says whether a model takes images (`architecture.input_modalities`) and how it reasons (`supported_parameters` and `reasoning`: `supported_efforts`, `default_effort`, `mandatory`, `default_enabled`). `model_library.reasoning_options` turns that into the efforts the dialog offers, lowest first, the default marked "(default)":
+
+- 148 models list their efforts and a default (Claude Sonnet 5.5: low to max, default high). A model that must reason is never offered "Off". A model that only reasons when asked defaults to Off.
+- About 100 reason but list no efforts (Gemma 4, Qwen 3.8 Flash). They get Low, Medium and High, which OpenRouter turns into a thinking budget, plus their default sent as no effort at all ("On (default)" or "Off (default)").
+- 68 can't reason. The dialog locks the control as "Unsupported" and no effort is sent.
+- Choosing a model chooses its default. A model run directly on OpenAI takes its capabilities from the same model on OpenRouter (`gpt-6-luna` from `openai/gpt-6-luna`); while the catalogue hasn't been fetched, it gets the old choices.
+- The server fits each drawing to its model (`studio._fit_model`), for that drawing only: an effort the model doesn't take becomes its default, and a text-only model paints blind with no exemplar, saying so in the feed. A reference image or benchmark card with a text-only model is refused.
+
+Why: one list of efforts for every model hid that they differ, and the shared default ("medium") didn't mean the same thing everywhere. It is OpenAI's default but one level below Claude Sonnet and Opus 5.5's (high). For Claude, effort sets how thorough it is overall, not only how much it thinks. On a reference recreation at medium, Sonnet 5.5 didn't think at all, painted 12 shapes in one call with the note "dog" and finished. At high it thought first, painted 25 shapes, looked, and corrected. That was the only technical cause found for Claude's weak results. Instructions, earlier tool calls and their results all reach it through OpenRouter, checked with a hidden word, recalled numbers and a receipt code. Even at its default, Claude painted well below GPT-6.1-Sol and Gemini 4 Argon. Opus paints over its own work deliberately (its notes say so), correcting depth-order slips after looking. The capabilities say only what the catalogue says: `gpt-5.4` defaults to Off there, which may not be OpenAI's own default.
 
 **Billed cost.** OpenRouter returns `usage.cost` on every response, kept through `preserve_raw_usage` and added up in the `on_llm_end` hook as `billed_usd`. The estimate from listed prices matched the bill for Qwen, Haiku and Sonnet, to the cent, cache writes included, but not for models whose hosts charge different prices: a Gemma 4 31B painting estimated at $0.0096 was billed $0.0056, and its hosts charge $0.10 to $0.75 per million input tokens. So billed is shown when present. The estimate stays for native models, whose API doesn't report a charge.
 
@@ -412,13 +422,12 @@ Endings: `finished` (the agent called finish), `ended` (it stopped without calli
 - Deleting gallery items in the app.
 - Local models (for example a vision model on local hardware) through the SDK's model providers.
 - Recording or pinning which OpenRouter host served a drawing. Hosts can differ for open models, and nothing records which one ran.
-- Text-only models from OpenRouter, for blind runs with the exemplar off.
 
 ## 13. Known limitations and risks
 
 - Each look adds an image to the conversation, and the whole conversation is resent on every model call, so token use grows with each look.
 - Small models may not follow the coordinate system well; that's part of what's being measured.
-- Some models reject `reasoning.effort`; use "Model default" (in the New painting dialog) if so.
+- Reasoning efforts come from OpenRouter's catalogue. A model it describes wrongly may reject an effort it was offered; choose its default if so.
 - The cost is an estimate: it uses today's prices in `.env`, not what was charged at the time, and a model call still running when you press Stop isn't counted.
 - Tracing uploads tool outputs and inputs, including look images and reference images, to OpenAI. This includes runs through OpenRouter whenever `OPENAI_API_KEY` is set. Without the key, the SDK skips the upload and logs a warning.
 - Models from OpenRouter vary widely. A weak model may end a drawing early by answering in text (saved with the ending `ended`). Free models have rate limits, and some may retain prompts and images.
@@ -469,4 +478,5 @@ Endings: `finished` (the agent called finish), `ended` (it stopped without calli
 | 8 Nov 2026 | Benchmark scorer v2: 1 px of grace on edges, for shape and colour, because exact pixels marked thin shapes down far too hard; wrong colour shown in the difference picture. The combined card is unchanged, so runs stay comparable |
 | 8 Nov 2026 | Gallery filters: developers as the top level, with each chosen developer's models as sub-filters |
 | 8 Nov 2026 | Model browser sorts: most popular, Intelligence, Agentic, Design Arena (SVG) and Painty score, with the score on each row |
+| 10 Nov 2026 | Reasoning effort choices per model from OpenRouter's catalogue, the model's default marked and chosen with it, "Unsupported" when it can't reason; text-only models offered, painting blind with no exemplar or reference. Claude's weak results traced to the shared "medium" being below its default |
 | 8 Nov 2026 | OpenRouter alongside OpenAI: a `/` in the model id picks the route, through OpenRouter's Responses API with the same SDK. Models and prices added in the app from its catalogue, saved in `models.json`; billed cost recorded; tools run one at a time; planning falls back when a model refuses forced tool calls |

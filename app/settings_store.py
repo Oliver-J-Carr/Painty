@@ -20,7 +20,9 @@ from .view import DEFAULT_GRID, GRID_MODES
 
 log = logging.getLogger("painty")
 
-REASONING_EFFORTS = ("", "low", "medium", "high")  # "" = the model's default
+# "" sends no effort, so the model does what it does by default. Which of these a model
+# takes comes from OpenRouter's catalogue (model_library.reasoning_options).
+REASONING_EFFORTS = ("", "none", "minimal", "low", "medium", "high", "xhigh", "max")
 
 # (min, max) for each whole-number setting.
 LIMITS: dict[str, tuple[int, int]] = {

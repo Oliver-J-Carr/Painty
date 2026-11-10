@@ -11,7 +11,7 @@ import app.main as main_module
 from app import providers
 from app.gallery import Gallery
 from app.benchmark_score import SCORER_VERSION, best_scores
-from app.model_library import CATALOGUE_URL, CatalogueError, ModelLibrary, parse_catalogue, parse_model
+from app.model_library import CATALOGUE_URL, CatalogueError, ModelLibrary, parse_catalogue, parse_model, reasoning_options
 from app.painter import build_painter_agent
 from app.pricing import cost, price_var
 from app.settings_store import SettingsStore, StudioSettings
@@ -86,7 +86,6 @@ def test_free_models_are_kept_at_zero():
 
 
 @pytest.mark.parametrize("changes", [
-    {"architecture": {"input_modalities": ["text"]}},         # can't see
     {"supported_parameters": ["reasoning"]},                  # can't call tools
     {"endpoints": ["/api/v1/chat/completions"]},              # :batch models have no Responses endpoint
     {"pricing": {"prompt": "-1", "completion": "-1"}},        # a router, priced by what it picks
@@ -120,7 +119,7 @@ def test_a_missing_or_strange_score_is_none(changes):
 
 
 def test_popularity_is_a_models_place_among_those_painty_can_use():
-    models = parse_catalogue({"data": [entry("a/first"), entry("b/text-only", architecture={"input_modalities": ["text"]}),
+    models = parse_catalogue({"data": [entry("a/first"), entry("b/batch-only", endpoints=["/api/v1/batches"]),
                                        entry("c/second")]})
     assert [(m["id"], m["popularity"]) for m in models] == [("a/first", 1), ("c/second", 2)]
 
@@ -282,3 +281,81 @@ def test_the_api_reports_when_openrouter_cant_be_reached(client):
     main_module.app.state.library.fetch = down
     res = client.get("/api/models/openrouter")
     assert res.status_code == 502 and "no route" in res.json()["detail"]
+
+
+# ------------------------------------------------------------------ what each model can do
+def options(**reasoning):
+    """A model's reasoning efforts as the dialog offers them, for catalogue fields given."""
+    params = reasoning.pop("params", ["tools", "reasoning"])
+    return reasoning_options({"supported_parameters": params, "reasoning": reasoning or None})
+
+
+def test_listed_efforts_are_offered_in_order_with_the_default_marked():
+    # Claude Sonnet 5.5 as OpenRouter lists it: it must reason, and defaults to high.
+    r = options(mandatory=True, supported_efforts=["max", "xhigh", "high", "medium", "low"], default_effort="high")
+    assert r == {"default": "high", "options": [
+        ["low", "Low"], ["medium", "Medium"], ["high", "High (default)"], ["xhigh", "Extra high"], ["max", "Max"]]}
+
+
+def test_a_model_that_must_reason_is_never_offered_off():
+    r = options(mandatory=True, supported_efforts=["none", "low", "high"], default_effort="high")
+    assert [v for v, _ in r["options"]] == ["low", "high"]
+
+
+def test_a_model_off_by_default_defaults_to_off():
+    # gpt-5.4: reasons only when asked, and can be sent "none".
+    r = options(mandatory=False, default_enabled=False,
+                supported_efforts=["xhigh", "high", "medium", "low", "none"], default_effort="medium")
+    assert r["default"] == "none" and r["options"][0] == ["none", "Off (default)"]
+
+
+def test_off_by_default_with_no_none_to_send_sends_nothing():
+    r = options(mandatory=False, default_enabled=False, supported_efforts=["low", "high"], default_effort="low")
+    assert r["default"] == "" and r["options"][0] == ["", "Off (default)"]
+
+
+def test_a_model_with_no_listed_efforts_gets_budget_levels():
+    # Gemma 4: reasons only when asked, with no efforts of its own.
+    gemma = options(mandatory=False, default_enabled=False)
+    assert gemma == {"default": "", "options": [["", "Off (default)"], ["low", "Low"], ["medium", "Medium"],
+                                                ["high", "High"]]}
+    # Qwen 3.8 Flash: reasons by default and can be turned off.
+    qwen = options(mandatory=False, default_enabled=True, supports_max_tokens=True)
+    assert [v for v, _ in qwen["options"]] == ["", "none", "low", "medium", "high"]
+    assert qwen["options"][:2] == [["", "On (default)"], ["none", "Off"]]
+
+
+def test_a_model_that_cant_reason_has_no_options():
+    assert options(params=["tools"]) == {"options": [], "default": ""}
+
+
+def test_text_only_models_are_kept_and_marked():
+    m = parse_model(entry("z-ai/glm-5.3", architecture={"input_modalities": ["text"]}))
+    assert m["vision"] is False
+    assert parse_model(entry())["vision"] is True
+
+
+def test_capabilities_come_from_the_catalogue_including_for_direct_models(tmp_path):
+    sonnet = entry("anthropic/claude-sonnet-5.5", reasoning={"mandatory": True, "supported_efforts": ["low", "high"],
+                                                              "default_effort": "high"})
+    luna = entry("openai/gpt-6-luna", reasoning={"supported_efforts": ["low", "medium"], "default_effort": "medium"})
+    text_only = entry("z-ai/glm-5.3", architecture={"input_modalities": ["text"]})
+    lib = library(tmp_path, sonnet, luna, text_only)
+    assert lib.model_info() == {"gpt-6-luna": None}  # nothing known before the catalogue is fetched
+    run(lib.add("anthropic/claude-sonnet-5.5"))
+    run(lib.add("z-ai/glm-5.3"))
+    info = lib.model_info()
+    assert info["gpt-6-luna"]["reasoning"]["default"] == "medium"  # direct, from openai/gpt-6-luna
+    assert info["anthropic/claude-sonnet-5.5"]["reasoning"]["default"] == "high"
+    assert info["z-ai/glm-5.3"]["vision"] is False
+    # Saved with the model, so they're known after a restart before the catalogue is fetched.
+    restarted = library(tmp_path)
+    assert restarted.capabilities("z-ai/glm-5.3")["vision"] is False
+    assert restarted.capabilities("gpt-6-luna") is None
+
+
+def test_the_api_gives_each_models_capabilities(client):
+    info = client.get("/api/models/info").json()["model_info"]
+    assert info["gpt-6-luna"] is None  # the test catalogue has no openai/gpt-6-luna
+    added = client.post("/api/models", json={"id": "google/gemma-4-31b-it"}).json()
+    assert added["model_info"]["google/gemma-4-31b-it"]["vision"] is True

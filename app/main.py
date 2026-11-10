@@ -114,7 +114,18 @@ def _model_list() -> dict:
     library, store = app.state.library, app.state.store
     store.set_models(library.models())
     return {"models": list(library.models()), "added": library.offered(),
-            "settings": settings_dict(store.current)}
+            "model_info": library.model_info(), "settings": settings_dict(store.current)}
+
+
+@app.get("/api/models/info")
+async def model_info() -> dict:
+    """What each model on offer can do: see images, and which reasoning efforts it takes.
+    Fetches OpenRouter's catalogue if it isn't cached yet; without it, what's saved."""
+    try:
+        await app.state.library.catalogue()
+    except CatalogueError as exc:
+        log.warning("model capabilities may be incomplete: %s", exc)
+    return {"model_info": app.state.library.model_info()}
 
 
 @app.get("/api/models/openrouter")

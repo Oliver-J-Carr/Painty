@@ -175,6 +175,7 @@
           <label>Reasoning effort <select data-setting="reasoning_effort" id="set-effort"></select></label>
         </div>
         <button type="button" class="ghost-dark browse-models" id="browse-models">Browse OpenRouter models…</button>
+        <p class="sight-note" id="sight-note" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M1.5 12S5.5 4.5 12 4.5 22.5 12 22.5 12 18.5 19.5 12 19.5 1.5 12 1.5 12Z" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/><circle cx="12" cy="12" r="3.6" fill="currentColor"/><path d="M3.5 3.5 20.5 20.5" stroke="var(--paper)" stroke-width="5" stroke-linecap="round"/><path d="M3.5 3.5 20.5 20.5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg><span>This model can't see images, so Painty paints blind: no looks at the canvas, no exemplar sheets, and no reference image or benchmark card.</span></p>
         <label class="toggle"><input type="checkbox" data-setting="vision" id="set-vision"> Let Painty see the canvas</label>
         <label class="toggle"><input type="checkbox" data-setting="exemplar" id="set-exemplar"> Show Painty the exemplar sheet first</label>
         <label class="toggle"><input type="checkbox" data-setting="planning" id="set-planning"> Let Painty write a plan before painting</label>
@@ -220,6 +221,7 @@
           <option value="design">Design Arena (SVG)</option>
           <option value="painty">Painty score</option>
         </select></label>
+        <label class="toggle"><input type="checkbox" id="browser-vision"> Sees images only</label>
         <label class="toggle"><input type="checkbox" id="browser-free"> Free only</label>
         <label class="toggle"><input type="checkbox" id="browser-added"> Added only</label>
       </div>

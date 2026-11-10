@@ -92,7 +92,8 @@ docker image prune
 - **One renderer.** Each shape becomes one self-contained SVG fragment (`canvas.shape_svg`). The browser shows those fragments; the backend joins the same fragments and rasterises them for looks and the gallery. Never re-implement shape drawing in JavaScript.
 - **Batches, one tool call per turn.** `paint` takes an ordered list, and `parallel_tool_calls=False`, so layering is always in the order the agent planned. Not every OpenRouter host honours that, so `RUN_CONFIG` also runs tools one at a time, in order. `paint_lock` is a backstop.
 - **A `/` in the model id means OpenRouter.** A model stays one plain string everywhere. Both routes use the Responses API, because the SDK's Chat Completions route strips images from tool results by default, which would blind `look`. Pass OpenRouter models as `Model` objects, never strings (the SDK reads a string's prefix), and never use `set_default_openai_client` (it would also move tracing and native models). The direct OpenAI path must stay unchanged.
-- **Models and prices can come from the app.** The browser lists OpenRouter's catalogue, kept to models with image input, `tools` and the Responses endpoint. A removed model keeps its price, so older paintings stay priced. `.env` prices win.
+- **Models and prices can come from the app.** The browser lists OpenRouter's catalogue, kept to models with `tools` and the Responses endpoint. Text-only models are offered too (behind a filter): they paint blind, with no exemplar, reference or benchmark.
+- **Reasoning efforts are per model.** `model_library.reasoning_options` builds each model's choices from the catalogue, its default marked "(default)"; none means it can't reason ("Unsupported"). `studio._fit_model` fits each drawing to its model (effort, vision, exemplar) without changing the saved settings. Never assume one effort means the same thing across families. A removed model keeps its price, so older paintings stay priced. `.env` prices win.
 - **Billed beats estimated.** When OpenRouter reports `usage.cost`, it is saved as `billed_usd` and shown instead of the estimate, which can be well off on models with many hosts.
 - **Batches are painted up to the first bad shape.** The shapes before it are painted; it and everything after it are not, and cost no budget, so a resend lands in the planned order. The result lists every problem in the batch, numbered within the batch. Never paint shapes after a bad one: that breaks the layering.
 - **A reference image goes in the first user message, once.** In the same grid mode as `look`, cropped to the canvas size. Never through a tool (each call would add the image again). No text with it means recreate it.
@@ -139,7 +140,7 @@ docker image prune
   - `{"type": "save"}`: save a paused, stopped or failed drawing to the gallery.
   - `{"type": "settings", "settings": {...}}`: update settings (refused while painting).
 - Server to browser:
-  - `hello`: `version`, `canvases` (`{shape: [width, height]}`), `settings`, `options` (models, efforts, grids, limits, top_up_limits, openrouter_key: whether the key is set, never the key), `benchmarks` (`[{name, title, about, shape, shapes, shape_budget, look_budget}]`) and `benchmark_prompt`.
+  - `hello`: `version`, `canvases` (`{shape: [width, height]}`), `settings`, `options` (models, efforts, grids, limits, top_up_limits, openrouter_key: whether the key is set, never the key, model_info: each model's `{vision, reasoning: {options, default}}` or null if unknown; `GET /api/models/info` gives it again once OpenRouter's catalogue is fetched), `benchmarks` (`[{name, title, about, shape, shapes, shape_budget, look_budget}]`) and `benchmark_prompt`.
   - `canvas_reset`: a new drawing started (`prompt`, `reference` (a PNG data URL or null), `benchmark` (a card name or null), `settings`, `shape`, `width`, `height`). Clear and resize the canvas, and clear the feed.
   - `shapes`: `shapes` as `[{n, svg}]` in paint order, plus `key` (the tool call id).
   - `look`: `key`, `n`, `focus` and `image` (a PNG data URL of exactly what the agent saw).
@@ -164,7 +165,7 @@ docker image prune
 - Prompt or static edits do nothing until the image is rebuilt (`--build`). `.env` changes need `--force-recreate`.
 - `docker run` fails if a container named `painty` already exists. Use `docker compose`.
 - `docker compose down -v` deletes the `painty-data` volume, and with it the whole gallery. Use plain `docker compose down`.
-- Some models reject `reasoning.effort`. Set Reasoning effort to "Model default" in the New painting dialog if a model errors.
+- Reasoning efforts come from OpenRouter's catalogue. If a model rejects one it was offered, choose its default.
 - Models in `PAINTY_MODELS` must accept image input for vision mode.
 - The shared OpenRouter client's connections belong to one event loop. That's fine under uvicorn, but `TestClient` starts a new loop per WebSocket, so a second live drawing through it fails with "Event loop is closed". Test live drawings against a real server.
 - When testing live with a container, set `DATA_DIR` to a temporary folder, so added models and test paintings stay out of the `painty-data` volume.

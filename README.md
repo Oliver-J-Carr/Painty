@@ -64,12 +64,12 @@ These are set on screen and saved between restarts. Changes apply to the next dr
 | Setting | Default | What it does |
 |---|---|---|
 | Model | First of `PAINTY_MODELS` | The model that paints. The choices are `PAINTY_MODELS` plus any you add with **Browse OpenRouter models** |
-| Reasoning effort | Medium | How hard the model thinks before each step. "Model default" leaves it unset |
-| Let Painty see the canvas | On | Gives the agent the `look` tool. Off means it paints blind |
-| Show Painty the exemplar sheet first | On | Sends the two exemplar sheets and their shape text in the first message. See them at `/exemplar.png?sheet=1&grid=frame` and `/exemplar.txt` |
+| Reasoning effort | The model's own | How hard the model thinks before each step. The choices are the chosen model's own, from OpenRouter's catalogue, with its default marked "(default)" and chosen when you pick the model. A model that can't reason shows "Unsupported". Models run directly on OpenAI take theirs from the same model on OpenRouter. Levels mean different things to different families: Claude's effort also sets how thorough it is overall, not just how long it thinks |
+| Let Painty see the canvas | On | Gives the agent the `look` tool. Off means it paints blind. Locked off for a text-only model |
+| Show Painty the exemplar sheet first | On | Locked off for a text-only model. Sends the two exemplar sheets and their shape text in the first message. See them at `/exemplar.png?sheet=1&grid=frame` and `/exemplar.txt` |
 | Grid on what Painty sees | Ruler frame | How every image Painty sees (its looks, the reference and the exemplar) marks positions: **Ruler frame** (numbered margin round the picture, 60 px bigger than the canvas), **Grid on the image** (lines and small numbers drawn on the picture, exactly canvas-sized) or **None** |
 | Let Painty write a plan before painting | Off | Painty's first turn is forced to call `plan`: composition, parts in paint order with boxes and colours, which parts overlap and which is in front, and stages. The plan costs no shapes, stays in the conversation, can be revised later, and is saved as `plan.txt` in the gallery. Some models, such as Claude Sonnet 5.5 and Opus 5.5, refuse forced tool calls, so they are only asked to plan, and the feed and `plan_forced` in `meta.json` say so |
-| Planning effort | High | The reasoning effort for that planning turn only. Later turns use Reasoning effort. Greyed out while planning is off |
+| Planning effort | The model's own | The reasoning effort for that planning turn only. Later turns use Reasoning effort. Set to the model's default whenever you pick a model, even while planning is off, so it's ready when you turn planning on. Greyed out while planning is off |
 | Shapes | 60 | Shapes per drawing |
 | Looks | 5 | Looks per drawing |
 | Most shapes in one paint call | 15 | Stops the agent painting everything in one blind batch |
@@ -81,7 +81,7 @@ Painty can run a model two ways, and you can use both side by side:
 - **Directly on OpenAI**, for a model id such as `gpt-6-luna`. Needs `OPENAI_API_KEY`.
 - **Through OpenRouter**, for any model id with a `/` in it, such as `google/gemma-4-31b-it` or `anthropic/claude-sonnet-5.5`. Needs `OPENROUTER_API_KEY`.
 
-To add an OpenRouter model, click **Browse OpenRouter models** in the New painting dialog, search, and click **Add**. Its prices come with it, so it needs nothing in `.env`. The browser lists only models that can see images, call tools and use OpenRouter's Responses API. Added models are saved in `models.json` in the data folder.
+To add an OpenRouter model, click **Browse OpenRouter models** in the New painting dialog, search, and click **Add**. Its prices come with it, so it needs nothing in `.env`. The browser lists models that can call tools and use OpenRouter's Responses API, with each one's reasoning levels and whether it sees images. Text-only models, such as GLM 5.3, are listed alongside the rest, marked with a crossed-out eye; tick **Sees images only** to hide them. A text-only model paints blind, with no exemplar sheets, reference image or benchmark card; the dialog locks those options and keeps your own for the next model. Added models are saved in `models.json` in the data folder.
 
 You can sort the list by newest, most popular, cheapest or name, and by score:
 
