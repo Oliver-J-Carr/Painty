@@ -1,7 +1,7 @@
 services:
   painty:
     build: .
-    image: painty:0.9.0
+    image: painty:0.10.0
     container_name: painty
     env_file: .env
     ports:
