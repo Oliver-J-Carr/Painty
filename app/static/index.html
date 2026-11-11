@@ -29,6 +29,7 @@
     </div>
     <nav class="topbar-actions">
       <button type="button" class="ghost" id="open-gallery">Gallery</button>
+      <button type="button" class="ghost" id="open-benchmarks">Benchmarks</button>
     </nav>
   </header>
 
@@ -244,9 +245,9 @@
       <div class="gallery-filters" id="gallery-filters" hidden>
         <div class="filter-chips" id="filter-models" role="group" aria-label="Show paintings by developer"></div>
         <button type="button" class="filter-chip fav-chip" id="filter-favourites" aria-pressed="false"></button>
-        <button type="button" class="filter-chip bench-chip" id="filter-benchmarks" aria-pressed="false"></button>
         <span class="filter-count" id="filter-count" aria-live="polite"></span>
         <div class="filter-sub" id="filter-submodels" hidden></div>
+        <div class="filter-chips filter-cards" id="filter-cards" role="group" aria-label="Show benchmark paintings by card" hidden></div>
       </div>
       <div class="gallery-body" id="gallery-body">
         <div id="gallery-grid" class="gallery-grid"></div>

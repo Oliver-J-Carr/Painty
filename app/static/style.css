@@ -337,6 +337,9 @@ button, input, select, textarea { font: inherit; }
 .fav-chip svg { width: 14px; height: 14px; fill: none; stroke: var(--cadmium-deep); stroke-width: 2.2; }
 .fav-chip[aria-pressed="true"] svg { fill: var(--cadmium); stroke: var(--cadmium); }
 .bench-chip svg { width: 14px; height: 14px; fill: none; stroke: var(--mat); stroke-width: 2.2; }
+.bench-chip[aria-pressed="true"] svg { stroke: var(--cadmium); }
+/* Benchmarks: a row of card chips of its own, under the model filters. */
+.filter-chips.filter-cards { display: flex; flex: 0 0 100%; flex-wrap: wrap; align-items: center; gap: 6px; }
 .filter-count { margin-left: auto; color: var(--graphite-soft); font-size: 13px; }
 .filter-sub { flex: 0 0 100%; display: flex; flex-direction: column; gap: 6px; padding-left: 12px; border-left: 2px solid var(--paper-edge); }
 .filter-sub-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }

@@ -1018,7 +1018,9 @@ document.addEventListener("change", (ev) => {
 });
 
 // ------------------------------------------------------------------ gallery
-async function openGallery(focusId = null) {
+// Open the gallery at a section, or at the section of the painting to show (focusId).
+async function openGallery(focusId = null, section = "paintings") {
+  setSection(section);
   $("gallery").hidden = false;
   $("gallery-detail").hidden = true;
   $("gallery-back").hidden = true;
@@ -1502,8 +1504,26 @@ function showFavourite(m) {
 // models as sub-filters: none chosen means all of that developer's, and each developer narrows
 // separately, so one model from here can be compared with all of another developer's. The other
 // filters stack on top. Kept while the page is open.
-let galleryItems = [];
-const galleryFilter = { developers: new Set(), models: new Set(), favourites: false, benchmarks: false };
+// Two sections share the gallery view: Gallery (your own paintings) and Benchmarks (paintings of
+// benchmark cards). Each keeps its own filters, so switching doesn't lose them.
+let galleryItems = [];   // every painting, both sections
+let gallerySection = "paintings";
+const SECTIONS = {
+  paintings: { title: "Gallery", empty: "No paintings yet. Finished drawings are saved here automatically." },
+  benchmarks: { title: "Benchmarks", empty: "No benchmark paintings yet. Choose a benchmark card in the "
+    + "New painting dialog, and its paintings are saved here." },
+};
+const newFilter = () => ({ developers: new Set(), models: new Set(), favourites: false, card: null });
+const galleryFilters = { paintings: newFilter(), benchmarks: newFilter() };
+let galleryFilter = galleryFilters.paintings;
+const sectionOf = (m) => (m.benchmark ? "benchmarks" : "paintings");
+const sectionItems = () => galleryItems.filter((m) => sectionOf(m) === gallerySection);
+
+function setSection(section) {
+  gallerySection = section;
+  galleryFilter = galleryFilters[section];
+  $("gallery-title").textContent = SECTIONS[section].title;
+}
 
 function passesModelFilter(model) {
   if (!galleryFilter.developers.size) return true;
@@ -1517,7 +1537,7 @@ function passesModelFilter(model) {
 const FACETS = {
   models: (m) => passesModelFilter(m.settings?.model),
   favourites: (m) => !galleryFilter.favourites || Boolean(m.favourite),
-  benchmarks: (m) => !galleryFilter.benchmarks || Boolean(m.benchmark),
+  card: (m) => !galleryFilter.card || m.benchmark === galleryFilter.card,
 };
 
 // Passes every filter, or every filter but one (skip), for the chips' counts.
@@ -1528,7 +1548,7 @@ function shown(m, skip = null) {
 // A chip's count stacks on the other filters: how many paintings it would show with them.
 // Developer and model chips ignore the model choice (they're either-or), so they count their own.
 function countWhere(skip, test) {
-  return galleryItems.filter((m) => shown(m, skip) && test(m)).length;
+  return sectionItems().filter((m) => shown(m, skip) && test(m)).length;
 }
 
 function filterChip(label, pressed, onClick, colour) {
@@ -1548,7 +1568,7 @@ function filterChip(label, pressed, onClick, colour) {
 // The gallery's models grouped by developer. Developers are alphabetical, so they're easy to
 // find in a long list; each one's models are in colour order.
 function modelsByDeveloper() {
-  const inGallery = new Set(galleryItems.map((m) => m.settings?.model));
+  const inGallery = new Set(sectionItems().map((m) => m.settings?.model));
   const groups = new Map();
   for (const model of modelColours.keys()) {
     if (!inGallery.has(model)) continue; // a model stays listed (at 0) while other filters hide it
@@ -1565,7 +1585,7 @@ function renderFilters() {
   const available = new Set([...groups.values()].flat());
   for (const name of [...models]) if (!available.has(name)) models.delete(name);
   const counts = new Map();
-  for (const m of galleryItems) {
+  for (const m of sectionItems()) {
     if (shown(m, "models")) counts.set(m.settings?.model, (counts.get(m.settings?.model) || 0) + 1);
   }
   const total = (list) => list.reduce((sum, model) => sum + (counts.get(model) || 0), 0);
@@ -1607,19 +1627,28 @@ function renderFilters() {
   fav.innerHTML = STAR_SVG;
   fav.append(` Favourites (${countWhere("favourites", (m) => m.favourite)})`);
   fav.setAttribute("aria-pressed", String(galleryFilter.favourites));
-  const bench = $("filter-benchmarks");
-  bench.innerHTML = TARGET_SVG;
-  bench.append(` Benchmarks (${countWhere("benchmarks", (m) => m.benchmark)})`);
-  bench.setAttribute("aria-pressed", String(galleryFilter.benchmarks));
-  $("gallery-filters").hidden = galleryItems.length === 0 || $("gallery-grid").hidden;
+
+  // Benchmarks: a chip per card, in the cards' own order (cards no longer offered last).
+  const cards = $("filter-cards");
+  cards.hidden = gallerySection !== "benchmarks";
+  if (!cards.hidden) {
+    const painted = new Set(sectionItems().map((m) => m.benchmark));
+    if (galleryFilter.card && !painted.has(galleryFilter.card)) galleryFilter.card = null;
+    const order = [...benchmarks.map((c) => c.name).filter((n) => painted.has(n)),
+      ...[...painted].filter((n) => !benchmarks.some((c) => c.name === n)).sort()];
+    const pick = (name) => () => { galleryFilter.card = name; renderGallery(); };
+    const all = filterChip(`All cards (${countWhere("card", () => true)})`, !galleryFilter.card, pick(null));
+    all.classList.add("bench-chip");
+    all.insertAdjacentHTML("afterbegin", TARGET_SVG);
+    cards.replaceChildren(all, ...order.map((name) => filterChip(
+      `${cardTitle(name)} (${countWhere("card", (m) => m.benchmark === name)})`,
+      galleryFilter.card === name, pick(name))));
+  }
+  $("gallery-filters").hidden = sectionItems().length === 0 || $("gallery-grid").hidden;
 }
 
 $("filter-favourites").addEventListener("click", () => {
   galleryFilter.favourites = !galleryFilter.favourites;
-  renderGallery();
-});
-$("filter-benchmarks").addEventListener("click", () => {
-  galleryFilter.benchmarks = !galleryFilter.benchmarks;
   renderGallery();
 });
 
@@ -1648,12 +1677,13 @@ function renderGallery({ keepScroll = false } = {}) {
   const scroll = $("gallery-body").scrollTop;
   grid.replaceChildren();
   renderFilters();
-  const items = galleryItems.filter(shown);
-  $("filter-count").textContent = items.length === galleryItems.length ? ""
-    : `Showing ${items.length} of ${galleryItems.length}`;
-  $("gallery-empty").textContent = galleryItems.length
+  const all = sectionItems();
+  const items = all.filter((m) => shown(m));
+  $("filter-count").textContent = items.length === all.length ? ""
+    : `Showing ${items.length} of ${all.length}`;
+  $("gallery-empty").textContent = all.length
     ? "No paintings match these filters."
-    : "No paintings yet. Finished drawings are saved here automatically.";
+    : SECTIONS[gallerySection].empty;
   $("gallery-empty").hidden = items.length > 0;
   for (const m of items) {
     const card = el("article", "gallery-card");
@@ -1680,7 +1710,9 @@ function renderGallery({ keepScroll = false } = {}) {
     const text = el("div", "gallery-text");
     const meta = el("p", "gallery-meta");
     meta.append(modelPill(m.settings?.model), ` ${summary(m)}`);
-    text.append(el("h3", "", m.title), el("p", "gallery-prompt", preview(promptOf(m))), meta);
+    // A benchmark's prompt is the standard one, so its tile names the card instead.
+    const about = m.benchmark ? `Benchmark: ${cardTitle(m.benchmark)}` : preview(promptOf(m));
+    text.append(el("h3", "", m.title), el("p", "gallery-prompt", about), meta);
     open.append(art, text);
     open.addEventListener("click", () => showDetail(m));
     card.append(open, starButton(m, "card-star"));
@@ -1870,6 +1902,7 @@ function stageViewer(m, base) {
 
 function showDetail(m) {
   stepStage = null;
+  if (sectionOf(m) !== gallerySection) setSection(sectionOf(m)); // Back returns to its own section
   const base = `/gallery/${encodeURIComponent(m.id)}`;
   const s = m.settings || {};
   const d = $("gallery-detail");
@@ -1993,6 +2026,7 @@ function backToGrid() {
 }
 
 $("open-gallery").addEventListener("click", () => openGallery());
+$("open-benchmarks").addEventListener("click", () => openGallery(null, "benchmarks"));
 $("gallery-back").addEventListener("click", backToGrid);
 $("close-gallery").addEventListener("click", () => { $("gallery").hidden = true; });
 
