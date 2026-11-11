@@ -242,6 +242,8 @@ button, input, select, textarea { font: inherit; }
 .entry[data-kind="error"] .entry-text { color: var(--vermilion); }
 .entry-look { margin-top: 8px; padding: 0; border: 0; background: none; cursor: zoom-in; display: block; }
 .entry-look img { display: block; width: 100%; max-width: 280px; border-radius: 3px; box-shadow: 0 0 0 1px var(--paper-edge); }
+.entry-looks { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; max-width: 360px; }
+.entry-looks .entry-look img { max-width: none; }
 
 /* ---------- OpenRouter model browser (stacks on the new painting dialog) ---------- */
 .browse-models { margin-top: 10px; padding: 6px 12px; font-size: 14px; }

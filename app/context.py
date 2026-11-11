@@ -142,12 +142,14 @@ class PaintyContext:
         await self.send(event)
 
     async def activity(self, kind: str, text: str, detail: str = "", status: str = "done",
-                       image: str | None = None) -> None:
+                       image: str | None = None, images: list[str] | None = None) -> None:
         """Add an entry to the browser's activity feed. image: an optional picture
-        (a data URL) shown as a thumbnail that enlarges on click."""
+        (a data URL) shown as a thumbnail that enlarges on click; images: several, side by side."""
         event = {"type": "activity", "kind": kind, "status": status, "text": text, "detail": detail}
         if image:
             event["image"] = image
+        if images:
+            event["images"] = images
         await self.emit(event)
 
     async def send_budget(self) -> None:

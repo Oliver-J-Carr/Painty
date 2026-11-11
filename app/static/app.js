@@ -149,7 +149,7 @@ function feedImage(src, alt, caption) {
   return btn;
 }
 
-function addEntry({ kind, text, detail, status, tool, key, image }) {
+function addEntry({ kind, text, detail, status, tool, key, image, images }) {
   const li = el("li", "entry");
   li.dataset.kind = kind || "agent";
   li.dataset.status = status || "done";
@@ -161,6 +161,14 @@ function addEntry({ kind, text, detail, status, tool, key, image }) {
     li.appendChild(plan);
   } else if (detail) li.appendChild(el("p", "entry-detail", detail));
   if (image) li.appendChild(feedImage(image, text || "Picture", text || ""));
+  if (images?.length) { // several, such as every exemplar sheet, side by side
+    const row = el("div", "entry-looks");
+    images.forEach((src, i) => {
+      const label = `${text || "Picture"} (${i + 1} of ${images.length})`;
+      row.appendChild(feedImage(src, label, label));
+    });
+    li.appendChild(row);
+  }
   feedList.appendChild(li);
   $("feed-empty").hidden = true;
   if (key) entries.set(key, li);
@@ -728,7 +736,14 @@ $("new-painting").addEventListener("click", openNewPainting);
 $("close-new").addEventListener("click", () => dialog.close());
 $("cancel-new").addEventListener("click", () => dialog.close());
 // A click on the backdrop lands on the dialog itself (the form fills the box).
-dialog.addEventListener("click", (ev) => { if (ev.target === dialog) dialog.close(); });
+// Close on a click outside the dialog, but only if the press started outside too: selecting
+// text in a field and letting go past the dialog's edge must not close it.
+let pressedOutside = false;
+dialog.addEventListener("pointerdown", (ev) => { pressedOutside = ev.target === dialog; });
+dialog.addEventListener("click", (ev) => {
+  if (ev.target === dialog && pressedOutside) dialog.close();
+  pressedOutside = false;
+});
 $("prompt").addEventListener("input", updatePaintButton);
 $("prompt").addEventListener("keydown", (ev) => {
   if (ev.key === "Enter" && !ev.shiftKey && !ev.isComposing) {
@@ -1385,7 +1400,12 @@ function updateModelInfo(info) {
 
 $("browse-models").addEventListener("click", openBrowser);
 $("close-browser").addEventListener("click", () => browser.close());
-browser.addEventListener("click", (ev) => { if (ev.target === browser) browser.close(); });
+let browserPressedOutside = false; // as the New painting dialog: only a click that starts outside closes it
+browser.addEventListener("pointerdown", (ev) => { browserPressedOutside = ev.target === browser; });
+browser.addEventListener("click", (ev) => {
+  if (ev.target === browser && browserPressedOutside) browser.close();
+  browserPressedOutside = false;
+});
 for (const id of ["browser-search", "browser-free", "browser-vision", "browser-added", "browser-sort"]) {
   $(id).addEventListener("input", renderBrowser);
 }
@@ -1987,7 +2007,12 @@ $("lightbox-img").addEventListener("load", (ev) => {
   if (img.naturalHeight) img.parentElement.style.setProperty("--ratio", img.naturalWidth / img.naturalHeight);
 });
 $("lightbox").addEventListener("click", () => { $("lightbox").hidden = true; });
-$("gallery").addEventListener("click", (ev) => { if (ev.target === $("gallery")) $("gallery").hidden = true; });
+let galleryPressedOutside = false; // only a click that starts on the backdrop closes the gallery
+$("gallery").addEventListener("pointerdown", (ev) => { galleryPressedOutside = ev.target === $("gallery"); });
+$("gallery").addEventListener("click", (ev) => {
+  if (ev.target === $("gallery") && galleryPressedOutside) $("gallery").hidden = true;
+  galleryPressedOutside = false;
+});
 
 let toastTimer = null;
 function toast(text, kind = "info") {

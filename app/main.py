@@ -28,7 +28,7 @@ from .pricing import cost
 from .settings_store import SettingsStore
 from .studio import Studio
 from .transfer import MAX_IMPORT_BYTES, AlreadyImported, NotAPainting, attachment, export_name, export_zip, import_zip
-from .view import GRID_MODES
+from .view import DEFAULT_GRID, GRID_MODES
 
 log = logging.getLogger("painty")
 STATIC = Path(__file__).parent / "static"
@@ -66,7 +66,7 @@ async def healthz() -> dict:
 
 
 @app.get("/exemplar.png")
-async def exemplar_png(sheet: int = 1, grid: str = "frame") -> Response:
+async def exemplar_png(sheet: int = 1, grid: str = DEFAULT_GRID) -> Response:
     """An exemplar sheet exactly as the agent sees it, for checking it by eye."""
     if grid not in GRID_MODES or not 1 <= sheet <= len(SHEETS):
         raise HTTPException(404, f"Use sheet 1 to {len(SHEETS)} and grid {', '.join(GRID_MODES)}.")

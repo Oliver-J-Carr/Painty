@@ -34,8 +34,10 @@ TICK_COLOUR = (90, 90, 90)
 GRID_COLOUR = (128, 128, 128, 115)  # mid grey, faint: visible on light and dark paint
 HALO_COLOUR = (255, 255, 255, 190)  # behind overlay labels, so they read on any paint
 
-GRID_MODES = ("frame", "overlay", "none")
-DEFAULT_GRID = "frame"
+# Overlay first and the default: the view is exactly canvas-sized, which smaller models in
+# particular read far better than a picture enlarged by a ruler frame.
+GRID_MODES = ("overlay", "frame", "none")
+DEFAULT_GRID = "overlay"
 
 # How each mode's view is described to the agent. Filled into the prompts, so
 # it must read as the end of a sentence about an image of the canvas.

@@ -482,7 +482,7 @@ def test_reference_alone_means_recreate_it(tmp_path):
         [paint([rect(0, 0, 768, 512, "#c87828")], "c1")],
         [finish("c2", "Orange", "A copy of the reference.")],
     ]
-    studio, model, events = make_studio(tmp_path, steps, exemplar=False)
+    studio, model, events = make_studio(tmp_path, steps, exemplar=False, grid="frame")
 
     async def go():
         await studio.start("", "landscape", _reference_url())
@@ -793,11 +793,12 @@ def test_exemplar_comes_first_in_the_opening_message_and_is_saved(tmp_path):
     # Sent once: still two images on the next call, not four.
     assert len(_images_in(model.calls[1].input)) == 2
     assert "# The exemplar sheets" in model.calls[0].system_instructions
-    assert any(e["text"].startswith("📐") for e in types(events, "activity"))
+    sheets = next(e for e in types(events, "activity") if e["text"].startswith("📐"))
+    assert sheets["images"] == [_images_in(model.calls[0].input)[i]["image_url"] for i in (0, 1)]  # both sheets
     folder = tmp_path / "gallery" / studio.saved_id
     meta = json.loads((folder / "meta.json").read_text())
     assert meta["exemplar_sheets"] == ["exemplar-1.png", "exemplar-2.png"]
-    assert meta["settings"]["exemplar"] is True and meta["settings"]["grid"] == "frame"
+    assert meta["settings"]["exemplar"] is True and meta["settings"]["grid"] == "overlay"  # the default
     assert (folder / "exemplar-2.png").exists()
 
 
@@ -854,7 +855,7 @@ def test_unknown_grid_mode_keeps_the_current_one(tmp_path):
     studio, _, _ = make_studio(tmp_path, [], grid="overlay")
     studio.store.update({"grid": "hexagons", "exemplar": 0})
     assert studio.store.current.grid == "overlay" and studio.store.current.exemplar is False
-    assert studio.hello()["options"]["grids"] == ["frame", "overlay", "none"]
+    assert studio.hello()["options"]["grids"] == ["overlay", "frame", "none"]  # the default first
 
 
 def test_a_benchmark_card_is_the_reference_and_is_saved_for_scoring(tmp_path):

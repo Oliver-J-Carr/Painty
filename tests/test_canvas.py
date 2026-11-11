@@ -62,7 +62,7 @@ def test_reference_view_has_the_same_ruler_frame_as_a_look():
     ref = reference_png(image_url(Image.new("RGB", (512, 768), (10, 20, 30))), 512, 768)
     view = Image.open(io.BytesIO(framed_png(ref, 512, 768))).convert("RGB")
     canvas = Canvas("portrait")
-    look = Image.open(io.BytesIO(agent_view_png(canvas.to_svg(), 512, 768))).convert("RGB")
+    look = Image.open(io.BytesIO(agent_view_png(canvas.to_svg(), 512, 768, "frame"))).convert("RGB")
     assert view.size == look.size == (512 + 2 * FRAME, 768 + 2 * FRAME)
     assert view.getpixel((5, 5)) == look.getpixel((5, 5))  # the frame
     assert view.getpixel((FRAME + 10, FRAME + 10)) == (10, 20, 30)  # the picture inside it
@@ -442,7 +442,7 @@ def test_hex_colours_are_normalised():
 
 def test_agent_view_has_a_ruler_frame():
     canvas = Canvas()
-    png = agent_view_png(canvas.to_svg(), canvas.width, canvas.height)
+    png = agent_view_png(canvas.to_svg(), canvas.width, canvas.height, "frame")
     img = Image.open(io.BytesIO(png))
     assert img.size == (canvas.width + 2 * FRAME, canvas.height + 2 * FRAME)
 
@@ -473,7 +473,7 @@ def test_off_canvas_allowance_follows_each_side():
 
 def test_portrait_agent_view_has_a_ruler_down_its_long_side():
     canvas = Canvas("portrait")
-    img = Image.open(io.BytesIO(agent_view_png(canvas.to_svg(), canvas.width, canvas.height))).convert("RGB")
+    img = Image.open(io.BytesIO(agent_view_png(canvas.to_svg(), canvas.width, canvas.height, "frame"))).convert("RGB")
     assert img.size == (512 + 2 * FRAME, 768 + 2 * FRAME)
     # A grid line at y = 704 (only on the tall canvas) runs across the painting...
     assert img.getpixel((FRAME + 100, FRAME + 704)) != (255, 255, 255)

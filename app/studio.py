@@ -191,7 +191,7 @@ class Studio:
         if exemplar:
             await self.ctx.activity("agent", "📐 The exemplar sheets Painty was shown",
                                     f"{len(exemplar)} sheets of numbered examples, before your prompt",
-                                    image=data_url(exemplar[0]))
+                                    images=[data_url(png) for png in exemplar])
         if benchmark:
             card = CARDS[benchmark]
             looks = f" and {card.look_budget} looks" if s.vision else ", painting blind"

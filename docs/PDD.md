@@ -196,11 +196,12 @@ Vision models judge *where* things are far better than they read exact numbers. 
 
 | Mode | What the agent sees | Size |
 |---|---|---|
-| `frame` (default, as before) | Numbered ruler round the picture, faint grid lines on it | canvas + 60 px each way |
-| `overlay` | The same grid lines, with small numbers drawn inside the picture along its top and left edges (on a light halo) | exactly the canvas |
+| `overlay` (default after v0.11.0) | Faint grid lines, with small numbers drawn inside the picture along its top and left edges (on a light halo) | exactly the canvas |
+| `frame` (the default up to v0.11.0) | Numbered ruler round the picture, the same grid lines on it | canvas + 60 px each way |
 | `none` | The painting as it is | exactly the canvas |
 
 - `overlay` separates the two questions: it keeps the grid's help but removes the size mismatch. Comparing all three on the same reference shows whether the grid helps, or the frame hurts.
+- **`overlay` became the default after v0.11.0**, listed first. Across many models, the smaller open ones especially did much better when every image they saw was exactly the canvas's size rather than enlarged by the frame. `frame` stays for comparison. Paintings saved before grid modes existed are still treated as `frame`, as they were made, and a saved setting keeps whatever was chosen.
 - One mode applies to every image the agent sees in a drawing (looks, the reference and the exemplar), so it compares like with like.
 - The look tool's docstring is fixed for every drawing, so it doesn't describe the grid; the prompt sections (`GRID_NOTES` in `view.py`, filled into the reference, vision and exemplar sections) and each look's result do. Frozen per drawing, so the prompt cache still works.
 
@@ -487,5 +488,6 @@ Endings: `finished` (the agent called finish), `ended` (it stopped without calli
 | 8 Nov 2026 | Gallery filters: developers as the top level, with each chosen developer's models as sub-filters |
 | 8 Nov 2026 | Model browser sorts: most popular, Intelligence, Agentic, Design Arena (SVG) and Painty score, with the score on each row |
 | 10 Nov 2026 | Reasoning effort choices per model from OpenRouter's catalogue, the model's default marked and chosen with it, "Unsupported" when it can't reason; text-only models offered, painting blind with no exemplar or reference. Claude's weak results traced to the shared "medium" being below its default |
+| 11 Nov 2026 | Grid mode `overlay` (exactly canvas-sized) is the default and first choice, replacing `frame`, because models, smaller open ones especially, did better with it. Both exemplar sheets show in the feed |
 | 11 Nov 2026 | Export a painting as a PNG, a card (framed, with its details, drawn with Pillow) or a zip of every file, named from its title and model; import zips back into the gallery, checked file by file; delete paintings from their page, after confirming |
 | 8 Nov 2026 | OpenRouter alongside OpenAI: a `/` in the model id picks the route, through OpenRouter's Responses API with the same SDK. Models and prices added in the app from its catalogue, saved in `models.json`; billed cost recorded; tools run one at a time; planning falls back when a model refuses forced tool calls |
