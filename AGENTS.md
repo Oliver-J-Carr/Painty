@@ -62,7 +62,7 @@ docker image prune
 
 ## Architecture
 
-- `app/main.py`: FastAPI app, static files, `/api/gallery` (and `PUT /api/gallery/{id}/favourite`), `/api/models` (`GET /api/models/openrouter`, `POST /api/models`, `DELETE /api/models/{id}`), the `/gallery/...` files and the `/ws` WebSocket. One `Studio` per connection.
+- `app/main.py`: FastAPI app, static files, `/api/gallery` (and `PUT /api/gallery/{id}/favourite`, `GET /api/gallery/{id}/export/{png|card|zip}`, `DELETE /api/gallery/{id}`, `POST /api/gallery/import` with the zip as the body), `/api/models` (`GET /api/models/openrouter`, `POST /api/models`, `DELETE /api/models/{id}`), the `/gallery/...` files and the `/ws` WebSocket. One `Studio` per connection.
 - `app/studio.py`: the drawing lifecycle (start, pause, keep going, stop, save) and the traced agent runs. Runs in a background task so `stop` can cancel it.
 - `app/providers.py`: which service runs a model. A `/` in the id means OpenRouter (an `OpenAIResponsesModel` on its own client); anything else is OpenAI directly, unchanged.
 - `app/model_library.py`: the models on offer. `PAINTY_MODELS` plus those added from OpenRouter's catalogue, with their prices, saved in `DATA_DIR/models.json`.
@@ -74,6 +74,8 @@ docker image prune
 - `app/benchmark.py`: the benchmark cards. Pictures written in the notation (items in cells, at graded levels), painted by the real renderer, served at `/benchmark/<name>.png` and `.txt`. A chosen card becomes the drawing's reference, painted by the server, and is saved as `benchmark.json`.
 - `app/benchmark_score.py`: scores a benchmark painting against its card, item by item. Run when a benchmark painting is saved (`meta.benchmark_score`, `benchmark-diff.png`), and from the command line (`python -m app.benchmark_score`, `--rescore` to save scores again). Bump `SCORER_VERSION` when the scoring changes. Pillow only.
 - `app/gallery.py`: saves finished paintings as plain files under `DATA_DIR/gallery`, including a snapshot of each stage (one per paint call that painted), rendered at save time.
+- `app/transfer.py`: exporting a painting's folder as a zip and importing one back (checked file by file: names, sizes, PNGs, and an SVG allow list matching what `canvas.shape_svg` writes), and download names from the title and model. Add any new element or attribute the renderer writes to `_SVG_TAGS` or `_SVG_ATTRS`, and any new gallery file to `_ALLOWED`, or imports will refuse or drop it (tested).
+- `app/card.py`: the card, a painting framed on the cutting mat with a label of its details, drawn with Pillow from `painting.png`.
 - `app/pricing.py`: the estimated cost of a painting from its tokens and its prices (`PAINTY_PRICE_<MODEL>`, or the model library's). Worked out live for `/api/gallery` (each item's `cost`) and the finished status. `cost` also carries `billed` when OpenRouter reported a charge.
 - `app/settings_store.py`: the on-screen settings (in the New painting dialog), clamped and saved to `DATA_DIR/settings.json`.
 - `app/context.py`: `PaintyContext` (canvas, budget, looks, event helpers), passed to tools and hooks, never sent to the model.

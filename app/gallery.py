@@ -19,14 +19,17 @@ Each painting gets its own folder under DATA_DIR/gallery:
                           favourite (set from the gallery) and benchmark_score (written
                           again by --rescore): the only things that change later
 
-Plain files, no database: easy to browse, copy, zip or delete by hand.
+Plain files, no database: easy to browse, copy, zip or delete by hand. A folder can
+also be exported as a zip and imported into another Painty (app/transfer.py).
 """
 
 from __future__ import annotations
 
 import json
 import re
+import shutil
 import time
+import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -189,6 +192,37 @@ class Gallery:
             (self.root / painting_id / "benchmark-diff.png").write_bytes(diff)
         return meta
 
+    def folder(self, painting_id: str) -> Path | None:
+        """A painting's folder, or None if there's no such painting. The id must be one
+        folder name straight under the gallery, so nothing outside it can be reached."""
+        if not _ID.fullmatch(painting_id or "") or painting_id in (".", ".."):
+            return None
+        folder = self.root / painting_id
+        return folder if (folder / "meta.json").is_file() else None
+
+    def delete(self, painting_id: str) -> bool:
+        """Delete a painting's folder and everything in it. False if there's no such
+        painting. Moved out of the gallery first, so it's never listed half deleted.
+        Raises OSError if it can't be moved."""
+        folder = self.folder(painting_id)
+        if folder is None:
+            return False
+        trash = self.root.parent / f".painty-delete-{uuid.uuid4().hex}"
+        folder.rename(trash)
+        shutil.rmtree(trash, ignore_errors=True)
+        return True
+
+    def get(self, painting_id: str) -> dict | None:
+        """One painting's meta, or None if there's no such painting (or it can't be read)."""
+        folder = self.folder(painting_id)
+        if folder is None:
+            return None
+        try:
+            meta = json.loads((folder / "meta.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        return meta if isinstance(meta, dict) else None
+
     def _update_meta(self, painting_id: str, changes: dict) -> dict | None:
         """Change fields in one painting's meta.json, atomically, and return the meta.
         The id must be one folder name straight under the gallery."""
@@ -212,9 +246,11 @@ class Gallery:
             return items
         for meta_path in self.root.glob("*/meta.json"):
             try:
-                items.append(json.loads(meta_path.read_text(encoding="utf-8")))
+                meta = json.loads(meta_path.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 continue
+            if isinstance(meta, dict):
+                items.append(meta)
         return sorted(items, key=lambda m: m.get("created_at", 0), reverse=True)
 
 

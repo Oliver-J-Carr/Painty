@@ -7,11 +7,12 @@ server streams back shapes, looks, budget changes and activity-feed entries.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, Response
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -19,12 +20,14 @@ from . import __version__
 from .config import settings
 from .benchmark import CARDS, card_png, card_text
 from .benchmark_score import best_scores
+from .card import render_card
 from .exemplar import SHEETS, exemplar_text, exemplar_views
 from .gallery import Gallery, settings_dict
 from .model_library import CatalogueError, ModelLibrary
 from .pricing import cost
 from .settings_store import SettingsStore
 from .studio import Studio
+from .transfer import MAX_IMPORT_BYTES, AlreadyImported, NotAPainting, attachment, export_name, export_zip, import_zip
 from .view import GRID_MODES
 
 log = logging.getLogger("painty")
@@ -92,6 +95,12 @@ async def benchmark_txt(name: str) -> Response:
     return Response(card_text(name), media_type="text/plain; charset=utf-8")
 
 
+def _cost(m: dict, prices) -> dict:
+    return cost((m.get("settings") or {}).get("model", ""), m.get("input_tokens", 0),
+                m.get("cached_tokens", 0), m.get("output_tokens", 0), prices,
+                m.get("cache_write_tokens", 0), m.get("billed_usd"))
+
+
 @app.get("/api/gallery")
 async def gallery_list() -> list[dict]:
     """Every painting's meta, newest first, each with its estimated cost at today's
@@ -99,10 +108,72 @@ async def gallery_list() -> list[dict]:
     items = app.state.gallery.list()
     prices = app.state.library.prices()
     for m in items:
-        m["cost"] = cost((m.get("settings") or {}).get("model", ""), m.get("input_tokens", 0),
-                         m.get("cached_tokens", 0), m.get("output_tokens", 0), prices,
-                         m.get("cache_write_tokens", 0), m.get("billed_usd"))
+        m["cost"] = _cost(m, prices)
     return items
+
+
+@app.delete("/api/gallery/{painting_id}")
+async def gallery_delete(painting_id: str) -> dict:
+    """Delete a painting and all its files, for good."""
+    try:
+        deleted = app.state.gallery.delete(painting_id)
+    except OSError as exc:
+        log.warning("could not delete %s: %s", painting_id, exc)
+        raise HTTPException(500, "Couldn't delete that. Check that DATA_DIR is writable.") from exc
+    if not deleted:
+        raise HTTPException(404, "There's no painting with that id.")
+    return {"id": painting_id, "deleted": True}
+
+
+EXPORTS = ("png", "card", "zip")
+
+
+@app.get("/api/gallery/{painting_id}/export/{kind}")
+async def gallery_export(painting_id: str, kind: str) -> Response:
+    """Download a painting: png (the painting alone), card (framed, with its details)
+    or zip (every file, to import again). Named from its title and model."""
+    gallery = app.state.gallery
+    folder, meta = gallery.folder(painting_id), gallery.get(painting_id)
+    if folder is None or meta is None:
+        raise HTTPException(404, "There's no painting with that id.")
+    if kind not in EXPORTS:
+        raise HTTPException(404, f"Export as {', '.join(EXPORTS)}.")
+    try:
+        if kind == "png":
+            body, media, name = (folder / "painting.png").read_bytes(), "image/png", export_name(meta, "png")
+        elif kind == "card":
+            body = await asyncio.to_thread(render_card, folder, meta, _cost(meta, app.state.library.prices()))
+            media, name = "image/png", export_name(meta, "png", "card")
+        else:
+            body, media, name = await asyncio.to_thread(export_zip, folder, meta), "application/zip", export_name(meta, "zip")
+    except OSError as exc:
+        log.warning("could not export %s as %s: %s", painting_id, kind, exc)
+        raise HTTPException(500, "Couldn't read that painting's files.") from exc
+    return Response(body, media_type=media, headers={"Content-Disposition": attachment(name)})
+
+
+@app.post("/api/gallery/import")
+async def gallery_import(request: Request) -> JSONResponse:
+    """Add a painting exported as a zip (the request body is the zip itself).
+    409 with its id if it's already in the gallery."""
+    if int(request.headers.get("content-length") or 0) > MAX_IMPORT_BYTES:
+        raise HTTPException(413, f"That file is too big to be a painting (over {MAX_IMPORT_BYTES // 2**20} MB).")
+    data = bytearray()
+    async for chunk in request.stream():
+        data.extend(chunk)
+        if len(data) > MAX_IMPORT_BYTES:
+            raise HTTPException(413, f"That file is too big to be a painting (over {MAX_IMPORT_BYTES // 2**20} MB).")
+    try:
+        meta = await asyncio.to_thread(import_zip, app.state.gallery, bytes(data))
+    except NotAPainting as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except AlreadyImported as exc:
+        return JSONResponse({"detail": "That painting is already in the gallery.", "id": exc.id}, status_code=409)
+    except OSError as exc:
+        log.warning("could not import a painting: %s", exc)
+        raise HTTPException(500, "Couldn't save that. Check that DATA_DIR is writable.") from exc
+    meta["cost"] = _cost(meta, app.state.library.prices())
+    return JSONResponse(meta)
 
 
 class ModelId(BaseModel):

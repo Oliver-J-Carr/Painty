@@ -28,7 +28,7 @@ In scope:
 - Live canvas, activity feed with look thumbnails, keep going, stop, gallery.
 - Runs locally as a Docker container.
 
-Out of scope for now (see section 12): follow-up prompts on the same canvas, raw SVG mode, user drawing or editing, deleting from the gallery in the app, multiple users.
+Out of scope for now (see section 12): follow-up prompts on the same canvas, raw SVG mode, user drawing or editing, multiple users.
 
 ## 3. The canvas
 
@@ -391,6 +391,15 @@ Each painting is a folder under `DATA_DIR/gallery` (in the container, the `paint
 - Not modelled: the long-context rates (double, for a request over 272K input tokens). A Painty request is normally far smaller.
 - Tokens are counted as each model call ends (the `on_llm_end` hook), not from the run's result. A stopped or failed run has no result, so before this a stopped-then-saved drawing lost every call in its last segment.
 
+**Export and import.** A painting can leave the gallery three ways, from an Export button with a download symbol on its gallery page and on the finished card: the painting alone (`painting.png`), a card, or a zip of every file. Every download is named from the title Painty gave it and the model, like `Sunny Face - openai-gpt-6-luna.png` (the `/` in an OpenRouter id becomes `-`), because a folder of exports is otherwise a pile of `painting.png`s. The server builds each one (`GET /api/gallery/{id}/export/{png|card|zip}`, `app/transfer.py`) and names it in `Content-Disposition`.
+
+- **The card** (`app/card.py`) is for sharing: the painting full size (2×) in a dark frame with a paper mount, hung on the cutting mat, with a paper label under it like a gallery's: title, "Painted by" the model and effort, the prompt in quotes, then shapes, cost and any benchmark score, and under another line the tokens in (with the share cached) and out (with the reasoning) in the same columns, as the gallery shows them. A painting made from a reference image shows it small over the frame's bottom right corner with a white border, as a gallery tile does, sitting mostly on the frame so it hides little of the painting. The card is as wide as the framed painting, so each canvas shape gets a card of its own shape, and the label wraps to it. Prompts run to 500 characters, so the prompt is cut at 4 lines with an ellipsis; a long prompt never makes the card taller. Cost is the billed amount, or the estimate marked `~`. Drawn with Pillow on the server rather than a browser canvas: it can be tested and checked by eye without a browser, and works for any painting. The trade-off is Pillow's built-in font rather than the app's Recursive and Pixelify Sans, which would mean shipping font files.
+- **The zip** holds every file in the folder, inside one folder named like the download. **Import** (a button in the gallery's header, several zips at once) adds it back as a gallery painting, here or in another Painty, keeping its id unless that is taken, and adding `imported_at` to its meta. A painting already in the gallery (same title, saved at the same moment) is refused and shown instead.
+- **Imports are someone else's files**, and the gallery serves them from Painty's own address, so a script in an SVG would run as Painty. So only the files a painting folder holds are taken (anything else is skipped, and no path can leave the folder); sizes and the file count are capped as it unpacks; every PNG must really be a PNG; and `painting.svg` may hold only the elements and attributes Painty's renderer writes, with `url()` only to its own gradients and filters. The allow lists match what `canvas.shape_svg` writes (tested), and every painting in the gallery when it was added passed. It is unpacked beside the gallery and moved in whole, so it's never listed half done. Imported benchmark paintings count towards the model browser's Painty score like your own.
+- **The menu floats over the page** (`position: fixed`, placed from the button), because the painting page's details column scrolls on its own and clipped a menu inside it. It opens below the button unless there's more room above (the finished card sits low under the canvas), moves left when it would run off the right, never makes anything scroll, and closes on scroll.
+
+**Deleting.** A Delete button on a painting's page (`DELETE /api/gallery/{id}`) removes its folder and every file in it, after a second press to confirm, which suggests exporting it first. There is no bin: the folder is moved out of the gallery, so it's never listed half deleted, then removed.
+
 Endings: `finished` (the agent called finish), `ended` (it stopped without calling finish, so its last words become the note) and `saved` (you saved it by hand).
 
 ## 11. Experiments to try
@@ -419,7 +428,6 @@ Endings: `finished` (the agent called finish), `ended` (it stopped without calli
 - Free three-point triangles, polygons or curves.
 - A background colour setting.
 - A side-by-side comparison view. 
-- Deleting gallery items in the app.
 - Local models (for example a vision model on local hardware) through the SDK's model providers.
 - Recording or pinning which OpenRouter host served a drawing. Hosts can differ for open models, and nothing records which one ran.
 
@@ -479,4 +487,5 @@ Endings: `finished` (the agent called finish), `ended` (it stopped without calli
 | 8 Nov 2026 | Gallery filters: developers as the top level, with each chosen developer's models as sub-filters |
 | 8 Nov 2026 | Model browser sorts: most popular, Intelligence, Agentic, Design Arena (SVG) and Painty score, with the score on each row |
 | 10 Nov 2026 | Reasoning effort choices per model from OpenRouter's catalogue, the model's default marked and chosen with it, "Unsupported" when it can't reason; text-only models offered, painting blind with no exemplar or reference. Claude's weak results traced to the shared "medium" being below its default |
+| 11 Nov 2026 | Export a painting as a PNG, a card (framed, with its details, drawn with Pillow) or a zip of every file, named from its title and model; import zips back into the gallery, checked file by file; delete paintings from their page, after confirming |
 | 8 Nov 2026 | OpenRouter alongside OpenAI: a `/` in the model id picks the route, through OpenRouter's Responses API with the same SDK. Models and prices added in the app from its catalogue, saved in `models.json`; billed cost recorded; tools run one at a time; planning falls back when a model refuses forced tool calls |

@@ -275,6 +275,8 @@ function applyState(e) {
       : typeof e.cost?.usd === "number" ? `Cost ≈ ${usd(e.cost.usd)}. ` : "";
     $("finished-meta").textContent = `${shapesOnCanvas} shapes. ${tokens}${cost}${savedId ? "Saved to the gallery." : "Not saved."}`;
     $("view-saved").hidden = !savedId;
+    $("finished-export").replaceChildren(...(savedId ? [exportMenu(savedId)] : []));
+    $("finished-export").hidden = !savedId;
     if (lastRun) lastRun.title = e.title || "Untitled";
   }
   if (state === "stopped" || state === "error") {
@@ -1004,7 +1006,15 @@ async function openGallery(focusId = null) {
   $("gallery-back").hidden = true;
   stepStage = null;
   $("gallery-grid").hidden = false;
+  $("gallery-import").hidden = false;
   $("gallery-body").scrollTop = 0;
+  await loadGallery();
+  const focus = focusId && galleryItems.find((m) => m.id === focusId);
+  if (focus) showDetail(focus);
+  else $("close-gallery").focus();
+}
+
+async function loadGallery() {
   let items = [];
   try {
     items = await (await fetch("/api/gallery")).json();
@@ -1014,10 +1024,188 @@ async function openGallery(focusId = null) {
   galleryItems = items;
   assignModelColours(items);
   renderGallery();
-  const focus = focusId && items.find((m) => m.id === focusId);
-  if (focus) showDetail(focus);
-  else $("close-gallery").focus();
 }
+
+// ---- export and import
+// Export: the painting alone, its card (framed, with its details) or every file as a zip.
+// The server names each download from the painting's title and model. Import adds zips
+// exported here (or from another Painty) back into the gallery.
+const EXPORT_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>';
+const EXPORTS = [
+  ["png", "Painting", "The picture alone, as a PNG"],
+  ["card", "Card", "Framed, with its title, model, prompt and cost, as a PNG"],
+  ["zip", "Everything", "Every file, as a zip that Painty can import"],
+];
+
+function closeExportMenus(except = null) {
+  for (const wrap of document.querySelectorAll(".export")) {
+    if (wrap === except) continue;
+    wrap.querySelector(".export-menu").hidden = true;
+    wrap.querySelector(".export-button").setAttribute("aria-expanded", "false");
+  }
+}
+
+function exportMenu(id) {
+  const wrap = el("div", "export");
+  const button = el("button", "ghost-dark export-button");
+  button.type = "button";
+  button.innerHTML = EXPORT_SVG;
+  button.append(el("span", "", "Export"));
+  button.title = "Download this painting";
+  button.setAttribute("aria-haspopup", "menu");
+  button.setAttribute("aria-expanded", "false");
+  const menu = el("div", "export-menu");
+  menu.setAttribute("role", "menu");
+  menu.hidden = true;
+  for (const [kind, label, hint] of EXPORTS) {
+    const a = el("a", "export-item");
+    a.href = `/api/gallery/${encodeURIComponent(id)}/export/${kind}`;
+    a.setAttribute("download", ""); // the server's name: the painting's title and model
+    a.setAttribute("role", "menuitem");
+    a.append(el("strong", "", label), el("span", "", hint));
+    a.addEventListener("click", () => closeExportMenus());
+    menu.appendChild(a);
+  }
+  button.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    const open = menu.hidden;
+    closeExportMenus(wrap);
+    menu.hidden = !open;
+    button.setAttribute("aria-expanded", String(open));
+    if (open) {
+      placeMenu(menu, button);
+      menu.querySelector("a").focus({ preventScroll: true }); // a scroll would close it
+    }
+  });
+  wrap.append(button, menu);
+  return wrap;
+}
+
+// The menu floats over the page (position: fixed), placed from the button, so no scrolling
+// column can clip it and it never makes anything scroll. Below the button unless there's
+// more room above; lined up with its left edge, or its right edge if that would run off
+// the window; always kept inside the window.
+const MENU_GAP = 6, EDGE = 8;
+function placeMenu(menu, button) {
+  menu.style.left = "0px";
+  menu.style.top = "0px";
+  const b = button.getBoundingClientRect();
+  const { width, height } = menu.getBoundingClientRect();
+  const below = innerHeight - b.bottom - MENU_GAP - EDGE;
+  const above = b.top - MENU_GAP - EDGE;
+  let top = height <= below || below >= above ? b.bottom + MENU_GAP : b.top - MENU_GAP - height;
+  let left = b.left + width <= innerWidth - EDGE ? b.left : b.right - width;
+  top = Math.max(EDGE, Math.min(top, innerHeight - EDGE - height));
+  left = Math.max(EDGE, Math.min(left, innerWidth - EDGE - width));
+  menu.style.left = `${Math.round(left)}px`;
+  menu.style.top = `${Math.round(top)}px`;
+}
+
+document.addEventListener("click", (ev) => {
+  if (!ev.target.closest?.(".export")) closeExportMenus();
+});
+// A fixed menu would stay put while its button scrolled away, so scrolling closes it.
+document.addEventListener("scroll", (ev) => {
+  if (!ev.target.closest?.(".export-menu")) closeExportMenus();
+}, true);
+addEventListener("resize", () => closeExportMenus());
+
+// ---- delete
+// From a painting's page, with a second press to confirm: it can't be undone.
+const TRASH_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/></svg>';
+
+function deleteControls(m) {
+  const wrap = el("div", "delete-wrap");
+  const button = el("button", "ghost-dark danger delete-button");
+  button.type = "button";
+  button.innerHTML = TRASH_SVG;
+  button.append(el("span", "", "Delete"));
+  button.title = "Delete this painting from the gallery";
+  const confirmRow = el("div", "delete-confirm");
+  confirmRow.hidden = true;
+  confirmRow.setAttribute("role", "alertdialog");
+  confirmRow.setAttribute("aria-label", "Delete this painting?");
+  const yes = el("button", "danger-solid", "Delete for good");
+  yes.type = "button";
+  const no = el("button", "ghost-dark", "Keep it");
+  no.type = "button";
+  const actions = el("div", "delete-actions");
+  actions.append(yes, no);
+  confirmRow.append(el("p", "", `Delete “${m.title}” and all its files? This can't be undone. `
+    + "Export it as Everything first to keep a copy you can import."), actions);
+  button.addEventListener("click", () => {
+    confirmRow.hidden = false;
+    button.hidden = true;
+    no.focus();
+  });
+  no.addEventListener("click", () => {
+    confirmRow.hidden = true;
+    button.hidden = false;
+    button.focus();
+  });
+  yes.addEventListener("click", async () => {
+    yes.disabled = no.disabled = true;
+    try {
+      const res = await fetch(`/api/gallery/${encodeURIComponent(m.id)}`, { method: "DELETE" });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || res.statusText);
+    } catch (err) {
+      yes.disabled = no.disabled = false;
+      toast(`Couldn't delete that painting. ${err.message}`, "error");
+      return;
+    }
+    galleryItems = galleryItems.filter((item) => item.id !== m.id);
+    if (savedId === m.id) { // the finished card no longer has a painting to link to
+      savedId = null;
+      $("view-saved").hidden = true;
+      $("finished-export").hidden = true;
+    }
+    backToGrid();
+    toast(`Deleted “${m.title}”.`);
+  });
+  wrap.append(button, confirmRow);
+  return wrap;
+}
+
+async function importPaintings(files) {
+  const button = $("gallery-import");
+  button.disabled = true;
+  button.querySelector("span").textContent = "Importing…";
+  const added = [], already = [], failed = [];
+  for (const file of files) {
+    try {
+      const res = await fetch("/api/gallery/import", {
+        method: "POST", headers: { "Content-Type": "application/zip" }, body: file,
+      });
+      const body = await res.json().catch(() => ({}));
+      if (res.ok) added.push(body);
+      else if (res.status === 409) already.push(body.id);
+      else failed.push(`${file.name}: ${body.detail || res.statusText}`);
+    } catch (err) {
+      failed.push(`${file.name}: ${err.message}`);
+    }
+  }
+  button.disabled = false;
+  button.querySelector("span").textContent = "Import";
+  await loadGallery();
+  if (failed.length) {
+    toast(`Couldn't import ${failed.length === 1 ? failed[0] : `${failed.length} files. ${failed.join(" ")}`}`, "error");
+  } else if (files.length === 1) { // one painting: show it
+    const id = added[0]?.id || already[0];
+    const m = galleryItems.find((item) => item.id === id);
+    if (already.length) toast("That painting is already in the gallery.");
+    if (m) showDetail(m);
+  } else {
+    toast(`Imported ${added.length} painting${added.length === 1 ? "" : "s"}`
+      + (already.length ? `. ${already.length} already in the gallery.` : "."));
+  }
+}
+
+$("gallery-import").addEventListener("click", () => $("import-file").click());
+$("import-file").addEventListener("change", (ev) => {
+  const files = [...ev.target.files];
+  ev.target.value = ""; // so the same file can be chosen again
+  if (files.length) importPaintings(files);
+});
 
 // ---- OpenRouter model browser
 // Lists the models Painty can use, with their prices. Adding one offers it in the New painting
@@ -1690,7 +1878,7 @@ function showDetail(m) {
   replayBtn.disabled = !m.shapes_used;
   replayBtn.addEventListener("click", () => replay(m));
   const actions = el("div", "detail-actions");
-  actions.append(again, replayBtn);
+  actions.append(again, replayBtn, exportMenu(m.id), deleteControls(m));
   right.appendChild(actions);
 
   const endings = { finished: "Painty finished it", ended: "Painty stopped without finishing", saved: "You saved it" };
@@ -1765,6 +1953,7 @@ function showDetail(m) {
   d.hidden = false;
   $("gallery-body").scrollTop = 0;
   $("gallery-back").hidden = false;
+  $("gallery-import").hidden = true;
   $("gallery-back").focus();
 }
 
@@ -1773,6 +1962,7 @@ function backToGrid() {
   stepStage = null;
   $("gallery-detail").hidden = true;
   $("gallery-back").hidden = true;
+  $("gallery-import").hidden = false;
   $("gallery-grid").hidden = false;
   renderGallery(); // picks up a favourite changed on the painting's page
   $("gallery-body").scrollTop = gridScroll;
@@ -1818,6 +2008,12 @@ document.addEventListener("keydown", (ev) => {
     return;
   }
   if (ev.key !== "Escape" || dialog.open) return; // the dialog closes itself on Escape
+  const openMenu = document.querySelector(".export-menu:not([hidden])");
+  if (openMenu) { // an open export menu closes first
+    closeExportMenus();
+    openMenu.parentElement.querySelector(".export-button").focus();
+    return;
+  }
   // Escape steps back one level: lightbox, then painting, then the gallery itself.
   if (!$("lightbox").hidden) $("lightbox").hidden = true;
   else if (!$("gallery").hidden && !$("gallery-detail").hidden) backToGrid();

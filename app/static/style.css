@@ -381,6 +381,52 @@ button, input, select, textarea { font: inherit; }
 .gallery-detail .looks img { width: 100%; box-shadow: 0 0 0 1px var(--paper-edge); cursor: zoom-in; }
 .head-actions { display: flex; align-items: center; gap: 6px; }
 .head-actions .back { padding: 5px 12px; }
+
+/* ---------- export and import ---------- */
+.export { position: relative; display: inline-block; }
+.export-button, .import-button, .delete-button { display: inline-flex; align-items: center; gap: 7px; }
+.export-button svg, .import-button svg, .delete-button svg {
+  width: 17px; height: 17px; fill: none; stroke: currentColor;
+  stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round;
+}
+.head-actions .import-button { padding: 5px 12px; }
+.export-menu {
+  position: fixed; z-index: 35; left: 0; top: 0; /* placed from the button in app.js */
+  width: max-content; max-width: min(320px, calc(100vw - 32px));
+  background: var(--paper); color: var(--graphite);
+  border-radius: var(--radius); padding: 6px;
+  box-shadow: 0 0 0 1px var(--paper-edge), 0 10px 28px rgba(0, 0, 0, 0.28);
+}
+.export-item {
+  display: block; padding: 7px 10px; border-radius: 4px;
+  color: var(--graphite); text-decoration: none; line-height: 1.3;
+}
+.export-item:hover, .export-item:focus-visible { background: rgba(35, 40, 42, 0.07); }
+.export-item:focus-visible { outline-offset: -2px; }
+.export-item strong { display: block; font-weight: 600; }
+.export-item span { display: block; font-size: 13px; color: var(--graphite-soft); }
+
+
+/* Delete: a quiet button on a painting's page, then a second press to confirm. */
+.delete-wrap { display: contents; }
+.ghost-dark.danger { color: var(--vermilion); box-shadow: inset 0 0 0 1.5px var(--vermilion); }
+.ghost-dark.danger:hover { background: rgba(214, 73, 51, 0.08); }
+.gallery-detail .delete-button { padding: 6px 12px; }
+.delete-confirm {
+  flex-basis: 100%; padding: 10px 12px; border-radius: var(--radius);
+  background: rgba(214, 73, 51, 0.08); box-shadow: inset 0 0 0 1.5px var(--vermilion);
+}
+.delete-confirm p { margin: 0 0 8px; font-size: 14px; }
+.delete-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.delete-actions button { padding: 6px 12px; }
+.danger-solid {
+  border: 0; border-radius: var(--radius); cursor: pointer; font-weight: 600;
+  background: var(--vermilion); color: #fff;
+}
+.danger-solid:hover { background: #c03d28; }
+.danger-solid:disabled, .delete-actions .ghost-dark:disabled { opacity: 0.6; cursor: wait; }
+.gallery-detail .export-button { padding: 6px 12px; }
+.gallery-detail .export-item { color: var(--graphite); font-weight: 400; }
 .score-items { margin: 0 0 12px; }
 .score-items h4 { margin: 0 0 4px; font-size: 14px; }
 .score-table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
@@ -392,8 +438,8 @@ button, input, select, textarea { font: inherit; }
 .score-diff img { display: block; width: 100%; box-shadow: 0 0 0 1px var(--paper-edge); }
 .gallery-detail .files { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 14px; }
 .gallery-detail .files a { white-space: nowrap; } /* wrap between links, never inside one */
-.gallery-detail .detail-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.gallery-detail .again { padding: 6px 12px; margin-bottom: 12px; }
+.gallery-detail .detail-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.gallery-detail .again { padding: 6px 12px; }
 .gallery-detail a { color: var(--mat); font-weight: 600; }
 
 /* The stage viewer: a big preview, a caption and a strip of every stage. Stages Painty looked

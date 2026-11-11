@@ -88,6 +88,7 @@
           <p class="outcome-meta" id="finished-meta"></p>
           <div class="outcome-actions outcome-again">
             <button type="button" class="ghost-dark" id="paint-again" title="Open New painting with this painting's prompt, image and settings">Paint again</button>
+            <span id="finished-export" hidden></span>
           </div>
         </div>
 
@@ -236,6 +237,8 @@
       <div class="drawer-head">
         <h2 id="gallery-title">Gallery</h2>
         <div class="head-actions">
+          <button type="button" class="ghost-dark import-button" id="gallery-import" title="Add paintings exported from Painty as zip files"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3M7 8l5-5 5 5M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg><span>Import</span></button>
+          <input type="file" id="import-file" accept=".zip,application/zip" multiple hidden>
           <button type="button" class="ghost-dark back" id="gallery-back" hidden>← All paintings</button>
           <button type="button" class="close" id="close-gallery" aria-label="Close gallery">×</button>
         </div>

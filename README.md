@@ -19,6 +19,7 @@ It's an experiment in agent adaptation. The agent can't fall back on SVG or CSS 
 - **Plan first, or not.** Turn on planning and Painty's first move is to write down a plan: the parts in paint order, back to front, and what sits in front of what. It has its own reasoning effort. The plan shows in the feed, stays in Painty's conversation for the whole drawing, and is saved with the painting. Painty can revise it as it goes.
 - **Budgets you control.** Shape and look budgets, plus a cap on shapes per call, set in the New painting dialog alongside the model and vision.
 - **Paint again.** Re-run a painting from its finished card or from the gallery. The New painting dialog opens filled in with its prompt, reference image, canvas and settings, so you can change one thing and compare.
+- **Export and import.** The Export button on a gallery painting, and on the finished card, downloads the painting as a PNG, as a card (the painting framed, with any reference image small on its corner, and its title, model, prompt, shapes, cost, and tokens in and out underneath, shaped to the canvas) or as a zip of every file. Each download is named from the painting's title and model. Import, in the gallery, adds exported zips back, here or in another Painty. Delete, on a painting's page, removes it and its files for good, after asking.
 - **Replay.** Press Replay on a gallery painting and it's painted again on the studio canvas, shape by shape, with each batch's note, every look and any plan appearing in the feed at the point it happened. Speed it up to 2×, 4×, 8× or 16× while it plays (remembered in your browser), or skip to the end at any time.
 - **Keep going.** When the shapes run out, or Painty wants to look with no looks left, the drawing pauses and asks how many shapes and looks to add. Type the amounts and the agent carries on exactly where it stopped.
 - **Watch it work.** Shapes appear live, layer by layer. A feed shows every batch, the agent's notes, and a thumbnail of everything it looked at.
@@ -53,7 +54,7 @@ You need Docker with the Compose plugin and an OpenAI API key.
    ```
 5. Open <http://127.0.0.1:8091>, click **New painting** and ask Painty for a picture.
 
-Paintings and settings are kept in the `painty-data` Docker volume, so they survive rebuilds. Download any painting from the gallery, or copy the whole gallery out with `docker cp painty:/srv/data/gallery ./gallery-export`.
+Paintings and settings are kept in the `painty-data` Docker volume, so they survive rebuilds. Export any painting from the gallery (a PNG, a card or a zip of every file), import a zip back with Import, or copy the whole gallery out with `docker cp painty:/srv/data/gallery ./gallery-export`.
 
 To run the tests: `python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements-dev.txt && pytest -q`
 
@@ -162,7 +163,6 @@ The design and the reasons behind it are in [`docs/PDD.md`](docs/PDD.md). In sho
 - Multi-step scenes: add to a finished painting with a follow-up prompt ("now add people playing volleyball").
 - A "hard mode" with an unfamiliar coordinate system, such as y pointing up.
 - More shapes or paint options, such as free three-point triangles.
-- Deleting paintings from the gallery in the app.
 - A side-by-side comparison view for vision on and off.
 - Style suggestions when starting a painting.
 
