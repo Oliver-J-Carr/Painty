@@ -274,14 +274,16 @@ function applyState(e) {
     const score = $("finished-score");
     score.hidden = !e.benchmark_score;
     score.replaceChildren(...(e.benchmark_score ? scoreLine(e.benchmark_score, e.meta?.benchmark) : []));
+    score.title = score.textContent;
     savedId = e.saved_id || null;
     $("finished-title").textContent = e.title || "Untitled";
     $("finished-note").textContent = e.note || "";
+    $("finished-note").title = e.note || ""; // cut to two lines on the card: the whole note on hover
     const t = e.tokens || {};
     const tokens = t.input || t.output ? `Tokens: ${tokenText(t)}. ` : "";
     const cost = typeof e.cost?.billed === "number" ? `Cost ${usd(e.cost.billed)}. `
       : typeof e.cost?.usd === "number" ? `Cost ≈ ${usd(e.cost.usd)}. ` : "";
-    $("finished-meta").textContent = `${shapesOnCanvas} shapes. ${tokens}${cost}${savedId ? "Saved to the gallery." : "Not saved."}`;
+    $("finished-meta").textContent = `${shapesOnCanvas} shapes. ${tokens}${cost}${savedId ? "" : "Not saved."}`.trim();
     $("view-saved").hidden = !savedId;
     $("finished-export").replaceChildren(...(savedId ? [exportMenu(savedId)] : []));
     $("finished-export").hidden = !savedId;
@@ -468,6 +470,7 @@ function endReplay() {
 
 function showPrompt(text, reference) {
   $("prompt-text").textContent = text;
+  $("prompt-text").title = text; // cut to two lines under the canvas: the whole prompt on hover
   $("ref-shown").hidden = !reference;
   shownReference = reference || null;
   if (reference) $("ref-shown-img").src = reference;

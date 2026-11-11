@@ -124,7 +124,11 @@ button, input, select, textarea { font: inherit; }
 .eyes span.used { background: var(--cadmium); box-shadow: none; }
 
 .prompt-shown { display: flex; align-items: center; justify-content: center; gap: 12px; color: rgba(247, 247, 242, 0.85); max-width: 60ch; }
-.prompt-shown p { margin: 0; text-align: center; }
+/* Cut to two lines (the whole prompt on hover), so a long prompt doesn't push the result card down. */
+.prompt-shown p {
+  margin: 0; text-align: center; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden;
+}
 .ref-shown { flex: none; padding: 0; border: 0; background: none; cursor: zoom-in; }
 .ref-shown img { display: block; height: 48px; width: auto; border-radius: 2px; box-shadow: 0 0 0 2px rgba(247, 247, 242, 0.85); }
 
@@ -141,7 +145,8 @@ button, input, select, textarea { font: inherit; }
 .replay-speed { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .replay-speed-label { font-size: 13px; color: var(--graphite-soft); margin-right: 4px; }
 .replay-speed .filter-chip { padding: 3px 10px; }
-.outcome-score { margin: 6px 0 0; font-size: 14px; }
+/* One line: the best and weakest items are cut short if need be (the gallery has every item). */
+.outcome-score { margin: 6px 0 0; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .outcome-score strong { font-variant-numeric: tabular-nums; }
 .outcome .ghost-dark { padding: 6px 12px; }
 .outcome-again { margin-top: 10px; }
@@ -155,7 +160,12 @@ button, input, select, textarea { font: inherit; }
 }
 /* Painty's own words get the casual cut of the typeface. */
 .painting-title { margin: 0; font-size: 22px; font-weight: 700; font-variation-settings: "CASL" 1; flex: 1 1 auto; }
-.painting-note { margin: 4px 0 0; font-variation-settings: "CASL" 1; max-height: 6em; overflow-y: auto; }
+.painting-note { margin: 4px 0 0; font-variation-settings: "CASL" 1; overflow-wrap: anywhere; }
+/* On the finished card a long note is cut short with an ellipsis rather than scrolling, so the
+   card stays short and the column doesn't scroll. The whole note is on hover and in the gallery. */
+.outcome .painting-note {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden;
+}
 
 /* ---------- new painting dialog ---------- */
 .dialog {
