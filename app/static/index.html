@@ -131,11 +131,13 @@
   <!-- New painting -->
   <dialog class="dialog" id="new-dialog" aria-labelledby="new-title">
     <form id="new-form" class="new-form" autocomplete="off">
-      <div class="drawer-head">
+      <div class="drawer-head dialog-head">
         <h2 id="new-title">New painting</h2>
         <button type="button" class="close" id="close-new" aria-label="Close">×</button>
       </div>
+      <div class="dialog-body">
       <p class="rerun-note" id="rerun-note" hidden></p>
+      <div class="dialog-fields group">
       <label for="prompt" class="field-label">What should Painty paint?</label>
       <textarea id="prompt" name="prompt" maxlength="500" rows="4"
                 placeholder="Try: a ginger cat sitting in the sun"></textarea>
@@ -159,32 +161,43 @@
         <input type="file" id="ref-file" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
       </div>
       <p class="ref-error" id="ref-error" role="alert" hidden></p>
-      <fieldset class="canvas-choice">
+      </div>
+      <fieldset class="dialog-fields group">
         <legend class="field-label">Canvas</legend>
+        <div class="canvas-choice">
         <label><input type="radio" name="canvas" value="square" checked>
           <span class="shape-icon" aria-hidden="true"></span><span>Square</span><small data-size="square"></small></label>
         <label><input type="radio" name="canvas" value="landscape">
           <span class="shape-icon" aria-hidden="true"></span><span>Landscape</span><small data-size="landscape"></small></label>
         <label><input type="radio" name="canvas" value="portrait">
           <span class="shape-icon" aria-hidden="true"></span><span>Portrait</span><small data-size="portrait"></small></label>
+        </div>
       </fieldset>
-      <fieldset class="dialog-fields">
+      <fieldset class="dialog-fields group">
         <legend class="field-label">Painter</legend>
         <div class="field-row">
           <label>Model <select data-setting="model" id="set-model"></select></label>
           <label>Reasoning effort <select data-setting="reasoning_effort" id="set-effort"></select></label>
         </div>
         <button type="button" class="ghost-dark browse-models" id="browse-models">Browse OpenRouter models…</button>
+      </fieldset>
+      <fieldset class="dialog-fields group">
+        <legend class="field-label">What Painty sees</legend>
         <p class="sight-note" id="sight-note" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M1.5 12S5.5 4.5 12 4.5 22.5 12 22.5 12 18.5 19.5 12 19.5 1.5 12 1.5 12Z" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/><circle cx="12" cy="12" r="3.6" fill="currentColor"/><path d="M3.5 3.5 20.5 20.5" stroke="var(--paper)" stroke-width="5" stroke-linecap="round"/><path d="M3.5 3.5 20.5 20.5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg><span>This model can't see images, so Painty paints blind: no looks at the canvas, no exemplar sheets, and no reference image or benchmark card.</span></p>
         <label class="toggle"><input type="checkbox" data-setting="vision" id="set-vision"> Let Painty see the canvas</label>
         <label class="toggle"><input type="checkbox" data-setting="exemplar" id="set-exemplar"> Show Painty the exemplar sheet first</label>
-        <label class="toggle"><input type="checkbox" data-setting="planning" id="set-planning"> Let Painty write a plan before painting</label>
         <div class="field-row">
           <label>Grid on what Painty sees <select data-setting="grid" id="set-grid"></select></label>
+        </div>
+      </fieldset>
+      <fieldset class="dialog-fields group">
+        <legend class="field-label">Planning</legend>
+        <label class="toggle"><input type="checkbox" data-setting="planning" id="set-planning"> Let Painty write a plan before painting</label>
+        <div class="field-row">
           <label>Planning effort <select data-setting="planning_effort" id="set-planning-effort"></select></label>
         </div>
       </fieldset>
-      <fieldset class="dialog-fields">
+      <fieldset class="dialog-fields group">
         <legend class="field-label">Budget</legend>
         <div class="field-row three">
           <label>Shapes <input type="number" data-setting="shape_budget" inputmode="numeric"></label>
@@ -195,6 +208,7 @@
         <p class="field-help" id="budget-note" hidden></p>
       </fieldset>
       <p class="field-help">The painter and budget are remembered for your next painting.</p>
+      </div>
       <div class="dialog-actions">
         <button type="button" class="ghost-dark" id="cancel-new">Cancel</button>
         <button type="submit" class="primary" id="paint" disabled>Paint</button>
