@@ -47,6 +47,10 @@ def plan(cid, text="1. Composition: a red square on blue."):
     return function_call("plan", {"plan": text}, call_id=cid)
 
 
+def ask(cid, shapes=20, reason="the whiskers"):
+    return function_call("request_shapes", {"shapes": shapes, "reason": reason}, call_id=cid)
+
+
 def make_studio(tmp_path, steps, usage=None, **settings):
     """usage: the Usage every scripted model call reports (None = all zeros)."""
     events = []
@@ -251,7 +255,7 @@ def test_shapes_crammed_into_one_string_are_split(tmp_path):
         [paint([f"{rect(0, 0, 100, 100)}\n{rect(10, 10, 50, 50)}; {rect(20, 20, 30, 30)}"], "c1")],
         [finish("c2")],
     ]
-    studio, _, events = make_studio(tmp_path, steps, max_shapes_per_call=3)
+    studio, _, events = make_studio(tmp_path, steps)
 
     async def go():
         await studio.start("anything")
@@ -263,28 +267,26 @@ def test_shapes_crammed_into_one_string_are_split(tmp_path):
     assert running["text"].startswith("🖌️ Painting 3 shapes") and running["detail"] == "3 rectangles"
 
 
-def test_batch_over_per_call_limit_is_rejected(tmp_path):
-    steps = [
-        [paint([rect(0, 0, 10 + i, 10 + i) for i in range(4)], "c1")],
-        [finish("c2")],
-    ]
-    studio, _, events = make_studio(tmp_path, steps, max_shapes_per_call=3)
+def test_a_big_batch_is_painted_whole(tmp_path):
+    # There's no limit on shapes per paint call.
+    steps = [[paint([rect(0, 0, 10 + i, 10 + i) for i in range(40)], "c1")], [finish("c2")]]
+    studio, _, events = make_studio(tmp_path, steps)
 
     async def go():
         await studio.start("anything")
         await _wait(studio)
     run(go)
 
-    assert len(studio.ctx.canvas) == 0
-    err = next(e for e in types(events, "activity") if e.get("key") == "c1" and e.get("status") == "error")
-    assert "at most 3 shapes" in err["result"]
+    assert len(studio.ctx.canvas) == 40 and _results(events)["c1"]["status"] == "done"
 
 
-def test_budget_pause_then_keep_going_resumes_same_conversation(tmp_path):
+def test_a_batch_past_the_budget_is_painted_then_more_can_be_asked_for(tmp_path):
     steps = [
-        [paint([rect(0, 0, 100, 100), rect(0, 0, 50, 50)], "c1")],   # uses the whole budget
-        [paint([rect(200, 200, 300, 300)], "c2")],                     # after keep going
-        [finish("c3", "Done")],
+        [paint([rect(0, 0, 100, 100), rect(0, 0, 50, 50), rect(0, 0, 20, 20)], "c1")],  # 1 over
+        [paint([rect(200, 200, 300, 300)], "c2")],     # refused: the budget is used up
+        [ask("c3", 17, "the sun")],                    # rounded to 20, and the run pauses
+        [paint([rect(200, 200, 300, 300)], "c4")],     # after you give 20
+        [finish("c5", "Done")],
     ]
     studio, model, events = make_studio(tmp_path, steps, shape_budget=2)
 
@@ -293,107 +295,126 @@ def test_budget_pause_then_keep_going_resumes_same_conversation(tmp_path):
         await _wait(studio)
         assert studio.state == "paused"
         paused = types(events, "status")[-1]
-        # Suggests shapes (they ran out) and no looks (some are left); you type the amounts.
-        assert paused["state"] == "paused" and paused["top_up"] == {"shapes": 20, "looks": 0}
-        await studio.keep_going(5, 0)
+        assert paused["reason"] == "Painty asks for 20 more shapes."
+        assert paused["request"] == {"shapes": 20, "reason": "the sun"}
+        assert paused["top_up"] == {"shapes": 20}  # filled in with what it asked for
+        await studio.keep_going(20)
         await _wait(studio)
     run(go)
 
-    assert studio.state == "finished"
-    assert len(studio.ctx.canvas) == 3
-    assert studio.ctx.budget.shapes_total == 7 and studio.ctx.budget.top_ups == 1
-    # The resumed call saw the earlier paint call and the keep-going message.
-    resumed_input = model.calls[1].input
-    assert any(isinstance(i, dict) and i.get("call_id") == "c1" for i in resumed_input)
-    assert "5 more shapes" in str(resumed_input[-1])
-    assert "Shapes left: 5 of 7." in str(resumed_input[-1])
-    # The new totals reach the instructions, and the drawing keeps its cache key.
-    assert "at most 2 shapes" in model.calls[0].system_instructions
-    assert "at most 7 shapes" in model.calls[1].system_instructions
+    results = _results(events)
+    # The whole batch landed, past the budget, and the result says what to do now.
+    assert results["c1"]["status"] == "done" and "Painted 3" in results["c1"]["result"]
+    assert "Shapes: 3 painted, 1 over your budget of 2" in results["c1"]["result"]
+    assert "used up (1 over)" in results["c1"]["result"] and "request_shapes" in results["c1"]["result"]
+    assert results["c2"]["status"] == "error" and "nothing was painted" in results["c2"]["result"]
+    assert "Asked for 20 more shapes" in results["c3"]["result"]
+
+    assert studio.state == "finished" and len(studio.ctx.canvas) == 4
+    b = studio.ctx.budget
+    # The 20 given come on top of the 3 painted, so the overshoot isn't taken from them.
+    assert (b.shapes_total, b.shapes_used, b.top_ups) == (23, 4, 1)
+    resumed = model.calls[3].input
+    assert any(isinstance(i, dict) and i.get("call_id") == "c1" for i in resumed)
+    assert "given the 20 shapes you asked for" in str(resumed[-1])
+    assert "Shapes left: 20 of 23." in str(resumed[-1])
+    # The new total reaches the instructions, and the drawing keeps its cache key.
+    assert "Your budget is 2 shapes" in model.calls[0].system_instructions
+    assert "Your budget is 23 shapes" in model.calls[3].system_instructions
+    assert "request_shapes" in model.calls[0].system_instructions
     keys = {c.model_settings.extra_args["prompt_cache_key"] for c in model.calls}
     assert keys == {studio.drawing_id}
     meta = json.loads((tmp_path / "gallery" / studio.saved_id / "meta.json").read_text())
-    assert meta["top_ups"] == 1 and meta["shapes_budget"] == 7
+    assert meta["top_ups"] == 1 and meta["shapes_budget"] == 23
+    assert meta["requests"] == [{"shapes": 20, "reason": "the sun", "shapes_used": 3, "granted": 20}]
+    assert any("You gave Painty 20 more shapes" in e.get("text", "") for e in types(events, "activity"))
 
 
-def test_keep_going_needs_a_shape_when_none_are_left(tmp_path):
-    steps = [[paint([rect(0, 0, 100, 100)], "c1")], [finish("c2")]]
-    studio, _, events = make_studio(tmp_path, steps, shape_budget=1)
+def test_a_request_needs_at_least_one_shape_given(tmp_path):
+    steps = [[paint([rect(0, 0, 100, 100)], "c1")], [ask("c2", 10)], [finish("c3")]]
+    studio, model, events = make_studio(tmp_path, steps, shape_budget=1)
 
     async def go():
         await studio.start("a square")
         await _wait(studio)
-        await studio.keep_going(0, 3)
+        await studio.keep_going(0)
         assert studio.state == "paused" and studio.ctx.budget.top_ups == 0
-        assert "add at least one" in types(events, "error")[-1]["text"]
-        await studio.keep_going("lots", 3)  # not a number: counts as 0
+        assert "at least one shape, or say no" in types(events, "error")[-1]["text"]
+        await studio.keep_going("lots")  # not a number: counts as 0
         assert studio.state == "paused"
-        await studio.keep_going(9999, 9999)  # clamped to the most you may add
+        await studio.keep_going(9999)  # clamped to the most you may give
         await _wait(studio)
     run(go)
 
-    assert studio.ctx.budget.shapes_total == 1 + 500 and studio.ctx.budget.looks_total == 5 + 50
-    assert studio.state == "finished"
+    assert studio.ctx.budget.shapes_total == 1 + 500 and studio.state == "finished"
+    assert "You asked for 10 shapes and have been given 500." in str(model.calls[2].input[-1])
 
 
-def test_a_refused_look_pauses_to_ask_for_more_looks(tmp_path):
+def test_a_turned_down_request_tells_it_to_finish(tmp_path):
     steps = [
         [paint([rect(0, 0, 100, 100)], "c1")],
-        [look("c2")],                          # no looks left: refused, and the run pauses
-        [look("c3")],                          # after keep going with 2 more looks
-        [finish("c4")],
+        [ask("c2", 30, "stripes")],
+        [paint([rect(0, 0, 10, 10)], "c3")],   # after the no: refused, even with shapes left
+        [ask("c4")],                           # and it can't ask again
+        [finish("c5", "Stripeless")],
     ]
-    studio, model, events = make_studio(tmp_path, steps, shape_budget=10, look_budget=0)
+    studio, model, events = make_studio(tmp_path, steps, shape_budget=5)
 
     async def go():
-        await studio.start("a square")
+        await studio.start("a tiger")
         await _wait(studio)
         assert studio.state == "paused"
-        paused = types(events, "status")[-1]
-        assert paused["reason"] == "Painty wanted to look, but it has no looks left."
-        assert paused["top_up"] == {"shapes": 0, "looks": 2}  # shapes are left, so none suggested
-        await studio.keep_going(0, 2)
+        await studio.deny()
+        await _wait(studio)
+        await studio.deny()  # nothing to turn down now
+    run(go)
+
+    assert studio.state == "finished" and len(studio.ctx.canvas) == 1
+    assert "Call finish now" in str(model.calls[2].input[-1])
+    results = _results(events)
+    assert results["c3"]["status"] == "error" and "turned down" in results["c3"]["result"]
+    assert results["c4"]["status"] == "error" and "already asked" in results["c4"]["result"]
+    final = types(events, "status")[-1]
+    assert final["state"] == "finished" and final["title"] == "Stripeless" and final["ending"] == "finished"
+    meta = json.loads((tmp_path / "gallery" / studio.saved_id / "meta.json").read_text())
+    assert meta["requests"] == [{"shapes": 30, "reason": "stripes", "shapes_used": 1, "granted": 0}]
+    assert meta["top_ups"] == 0
+    assert "hasn't asked" in types(events, "error")[-1]["text"]
+
+
+def test_more_shapes_can_only_be_asked_for_near_the_end(tmp_path):
+    steps = [[ask("c1")], [ask("c2", 20, "  ")], [finish("c3")]]
+    studio, _, events = make_studio(tmp_path, steps, shape_budget=60)
+
+    async def go():
+        await studio.start("a cat")
         await _wait(studio)
     run(go)
 
-    assert studio.state == "finished"
+    results = _results(events)
+    assert results["c1"]["status"] == "error" and "you still have 60 shapes left" in results["c1"]["result"]
+    assert studio.state == "finished" and studio.ctx.requests == []
+    assert studio.ctx.budget.shapes_total == 60
+
+
+def test_looks_are_unlimited_and_counted(tmp_path):
+    steps = [[paint([rect(0, 0, 100, 100)], "c1")]] + [[look(f"l{i}")] for i in range(8)] + [[finish("c2")]]
+    studio, model, events = make_studio(tmp_path, steps)
+
+    async def go():
+        await studio.start("look a lot")
+        await _wait(studio)
+    run(go)
+
+    assert studio.state == "finished" and len(types(events, "look")) == 8
     b = studio.ctx.budget
-    assert (b.shapes_total, b.looks_total, b.looks_used, b.top_ups) == (10, 2, 1, 1)
-    refused, message = model.calls[2].input[-2:]
-    assert refused["call_id"] == "c2" and "pauses here" in str(refused["output"])
-    assert message["content"].startswith("You have been given 2 more looks. Shapes left: 9 of 10. Looks left: 2 of 2.")
+    assert b.looks_used == 8 and b.looks_total is None and b.looks_left is None
+    assert "Looks so far: 8." in _results(events)["l7"]["result"]
+    assert types(events, "budget")[-1]["looks_total"] is None
+    assert "as often as you need" in model.calls[0].system_instructions
+    meta = json.loads((tmp_path / "gallery" / studio.saved_id / "meta.json").read_text())
+    assert meta["looks_used"] == 8 and meta["looks_budget"] is None
 
-
-def test_keep_going_without_more_looks_carries_on_blind(tmp_path):
-    steps = [[look("c1")], [paint([rect(0, 0, 100, 100)], "c2")], [finish("c3")]]
-    studio, model, events = make_studio(tmp_path, steps, shape_budget=10, look_budget=0)
-
-    async def go():
-        await studio.start("a square")
-        await _wait(studio)
-        assert studio.state == "paused"
-        await studio.keep_going(0, 0)
-        await _wait(studio)
-    run(go)
-
-    assert studio.state == "finished" and studio.ctx.budget.top_ups == 0
-    message = str(model.calls[1].input[-1])
-    assert "No more shapes or looks were added" in message and "no looks left" in message
-
-
-def test_painting_blind_ignores_added_looks(tmp_path):
-    steps = [[paint([rect(0, 0, 100, 100)], "c1")], [finish("c2")]]
-    studio, _, events = make_studio(tmp_path, steps, shape_budget=1, vision=False)
-
-    async def go():
-        await studio.start("a square")
-        await _wait(studio)
-        assert types(events, "status")[-1]["top_up"] == {"shapes": 20, "looks": None}
-        await studio.keep_going(3, 4)
-        await _wait(studio)
-    run(go)
-
-    assert studio.ctx.budget.shapes_total == 4 and studio.ctx.budget.looks_total == 0
 
 
 def test_instructions_stay_the_same_within_a_run(tmp_path):
@@ -567,15 +588,14 @@ def test_settings_sent_just_before_paint_apply_to_that_drawing(tmp_path):
     studio, model, events = make_studio(tmp_path, [[finish("c1")]])
 
     async def go():
-        await studio.update_settings({"shape_budget": 7, "look_budget": 2, "vision": False,
-                                      "max_shapes_per_call": 3, "reasoning_effort": "high"})
+        await studio.update_settings({"shape_budget": 7, "vision": False, "reasoning_effort": "high"})
         await studio.start("a dot")
         await _wait(studio)
     run(go)
 
     c = studio.ctx
     assert (c.budget.shapes_total, c.budget.looks_total) == (7, 0)  # vision off: no looks
-    assert c.settings.max_shapes_per_call == 3 and c.settings.reasoning_effort == "high"
+    assert c.settings.reasoning_effort == "high"
     assert "look" not in {t.name for t in model.calls[0].tools}
     assert types(events, "canvas_reset")[0]["settings"]["shape_budget"] == 7
 
@@ -620,23 +640,10 @@ def test_vision_off_has_no_look_tool(tmp_path):
     run(go)
 
     tool_names = [t.name for t in model.calls[0].tools]
-    assert tool_names == ["paint", "finish"]
+    assert tool_names == ["paint", "request_shapes", "finish"]
     assert "cannot see the canvas" in model.calls[0].system_instructions
     assert studio.ctx.budget.looks_total == 0
 
-
-def test_looks_run_out_gracefully(tmp_path):
-    steps = [[look("c1")], [look("c2")], [finish("c3")]]
-    studio, _, events = make_studio(tmp_path, steps, look_budget=1)
-
-    async def go():
-        await studio.start("look twice")
-        await _wait(studio)
-    run(go)
-
-    assert len(types(events, "look")) == 1
-    err = next(e for e in types(events, "activity") if e.get("key") == "c2" and e.get("status") == "error")
-    assert "no looks left" in err["result"]
 
 
 def test_agent_stopping_without_finish_still_saves(tmp_path):
@@ -654,20 +661,22 @@ def test_agent_stopping_without_finish_still_saves(tmp_path):
 
 
 def test_turn_limit_pauses_and_can_resume(tmp_path):
-    # Budget 1 shape + 0 looks + 10 spare = 11 model calls allowed. Waste them all.
-    steps = [[paint([], f"w{i}")] for i in range(11)] + [
+    # Budget 1 shape: twice that + 10 spare = 12 model calls allowed. Waste them all.
+    steps = [[paint([], f"w{i}")] for i in range(12)] + [
         [paint([rect(0, 0, 100, 100)], "c1")],
         [finish("c2")],
     ]
-    studio, _, events = make_studio(tmp_path, steps, shape_budget=1, look_budget=0)
+    studio, _, events = make_studio(tmp_path, steps, shape_budget=1)
 
     async def go():
         await studio.start("waste turns")
         await _wait(studio)
         assert studio.state == "paused"
-        assert types(events, "status")[-1]["reason"] == "The hidden turn limit was reached."
+        paused = types(events, "status")[-1]
+        assert paused["reason"] == "The hidden turn limit was reached."
+        assert paused["request"] is None and paused["top_up"] == {"shapes": 0}
         assert studio.history is not None
-        await studio.keep_going(5, 0)
+        await studio.keep_going(0)  # it still has its shape
         await _wait(studio)
     run(go)
 
@@ -697,7 +706,7 @@ def test_stopped_drawing_keeps_the_tokens_it_used(tmp_path):
     # Regression: tokens were read from the run's result, which a stopped run never has.
     per_call = Usage(requests=1, input_tokens=1000, output_tokens=10, total_tokens=1010)
     steps = [[paint([rect(0, 0, 100, 100)], "c1")]] + [[look(f"l{i}")] for i in range(50)]
-    studio, _, events = make_studio(tmp_path, steps, usage=per_call, look_budget=50, shape_budget=2)
+    studio, _, events = make_studio(tmp_path, steps, usage=per_call, shape_budget=2)
 
     async def go():
         await studio.start("stop me")
@@ -715,7 +724,7 @@ def test_stopped_drawing_keeps_the_tokens_it_used(tmp_path):
 
 def test_stop_cancels_and_save_keeps_the_painting(tmp_path):
     steps = [[paint([rect(0, 0, 100, 100)], "c1")]] + [[look(f"l{i}")] for i in range(50)]
-    studio, _, events = make_studio(tmp_path, steps, look_budget=50, shape_budget=2)
+    studio, _, events = make_studio(tmp_path, steps, shape_budget=2)
 
     async def go():
         await studio.start("stop me")
@@ -734,7 +743,7 @@ def test_stop_cancels_and_save_keeps_the_painting(tmp_path):
 
 def test_settings_locked_while_painting(tmp_path):
     steps = [[look(f"l{i}")] for i in range(50)]
-    studio, _, events = make_studio(tmp_path, steps, look_budget=50)
+    studio, _, events = make_studio(tmp_path, steps)
 
     async def go():
         await studio.start("busy")
@@ -975,8 +984,12 @@ def test_a_benchmark_has_a_fixed_budget_and_no_top_ups(tmp_path):
     card = CARDS["basic"]  # 8 shapes: a budget of 35 shapes and 3 looks
     assert card.shape_budget == 35
     batch = [rect(0, 0, 10 + i, 10) for i in range(15)]
-    steps = [[paint(batch, "c1")], [look("c2")], [paint(batch, "c3")], [paint(batch[:5], "c4")]]
-    studio, model, events = make_studio(tmp_path, steps, exemplar=False, shape_budget=200, look_budget=9)
+    steps = [[paint(batch, "c1")], [look("c2")], [paint(batch, "c3")],
+             [paint(batch, "c4")],          # 5 left: refused, a benchmark can't go over
+             [paint(batch[:5], "c5")],      # exactly used up
+             [paint(batch[:1], "c6")],      # refused
+             [finish("c7")]]
+    studio, model, events = make_studio(tmp_path, steps, exemplar=False, shape_budget=200)
 
     async def go():
         await studio.start("copy it", "", None, benchmark="basic")
@@ -986,25 +999,37 @@ def test_a_benchmark_has_a_fixed_budget_and_no_top_ups(tmp_path):
     # The card's budget, not the saved settings, which keep your own.
     assert (studio.ctx.budget.shapes_total, studio.ctx.budget.looks_total) == (card.shape_budget, card.look_budget)
     assert studio.ctx.settings.shape_budget == card.shape_budget
-    assert studio.store.current.shape_budget == 200 and studio.store.current.look_budget == 9
+    assert studio.store.current.shape_budget == 200
     assert f"{card.shape_budget} shapes" in model.calls[0].system_instructions
+    assert "fixed" in model.calls[0].system_instructions
+    assert f"up to {card.look_budget} times" in model.calls[0].system_instructions
+    # No asking for more: the tool isn't there.
+    assert [t.name for t in model.calls[0].tools] == ["paint", "look", "finish"]
 
-    # Out of shapes: paused with no top-up offered, and keep going is refused.
-    paused = types(events, "status")[-1]
-    assert paused["state"] == "paused" and paused["top_up"] is None
-
-    async def more():
-        await studio.keep_going()
-    run(more)
-    assert studio.state == "paused" and studio.ctx.budget.top_ups == 0
-    assert "fixed budget" in types(events, "error")[-1]["text"]
-
-    async def save():
-        await studio.save()
-    run(save)
+    results = _results(events)
+    assert results["c4"]["status"] == "error" and "Only 5 shapes are left" in results["c4"]["result"]
+    assert "call finish now" in results["c5"]["result"]
+    assert results["c6"]["status"] == "error"
+    assert studio.state == "finished" and len(studio.ctx.canvas) == 35 and studio.ctx.budget.top_ups == 0
     meta = json.loads((tmp_path / "gallery" / studio.saved_id / "meta.json").read_text())
     assert meta["shapes_budget"] == card.shape_budget and meta["looks_budget"] == card.look_budget
     assert meta["settings"]["shape_budget"] == card.shape_budget
+
+
+def test_a_benchmark_cant_keep_going_after_the_turn_limit(tmp_path, monkeypatch):
+    monkeypatch.setattr(studio_module, "SPARE_TURNS", 0)
+    steps = [[paint([], f"w{i}")] for i in range(80)]
+    studio, _, events = make_studio(tmp_path, steps, exemplar=False)
+
+    async def go():
+        await studio.start("copy it", "", None, benchmark="basic")
+        await _wait(studio)
+        assert studio.state == "paused" and types(events, "status")[-1]["top_up"] is None
+        await studio.keep_going(5)
+    run(go)
+
+    assert studio.state == "paused" and studio.ctx.budget.top_ups == 0
+    assert "fixed budget" in types(events, "error")[-1]["text"]
 
 
 def test_a_blind_benchmark_has_no_looks(tmp_path):
@@ -1044,7 +1069,7 @@ def test_planning_off_has_no_plan_tool_or_section(tmp_path):
         await _wait(studio)
     run(go)
 
-    assert [t.name for t in model.calls[0].tools] == ["paint", "look", "finish"]
+    assert [t.name for t in model.calls[0].tools] == ["paint", "look", "request_shapes", "finish"]
     assert "# Planning" not in model.calls[0].system_instructions
     assert model.calls[0].model_settings.tool_choice is None
     meta = json.loads((tmp_path / "gallery" / studio.saved_id / "meta.json").read_text())
@@ -1072,7 +1097,7 @@ def test_planning_turn_is_forced_at_its_own_effort_then_paints(tmp_path):
     # Everything before the conversation is the same, so the painter reuses the cache.
     assert len({c.system_instructions for c in model.calls}) == 1
     assert len({tuple(t.name for t in c.tools) for c in model.calls}) == 1
-    assert [t.name for t in first.tools] == ["plan", "paint", "look", "finish"]
+    assert [t.name for t in first.tools] == ["plan", "paint", "look", "request_shapes", "finish"]
     assert "# Planning" in first.system_instructions
     assert all(c.model_settings.extra_args == {"prompt_cache_key": studio.drawing_id}
                for c in model.calls)
@@ -1142,8 +1167,9 @@ def test_planning_only_happens_at_the_start_not_on_keep_going(tmp_path):
     steps = [
         [plan("c1")],
         [paint([rect(0, 0, 100, 100)], "c2")],
-        [paint([rect(0, 0, 50, 50)], "c3")],
-        [finish("c4")],
+        [ask("c3", 10)],
+        [paint([rect(0, 0, 50, 50)], "c4")],
+        [finish("c5")],
     ]
     studio, model, _ = make_studio(tmp_path, steps, planning=True, shape_budget=1)
 
@@ -1155,8 +1181,8 @@ def test_planning_only_happens_at_the_start_not_on_keep_going(tmp_path):
         await _wait(studio)
     run(go)
 
-    assert studio.state == "finished" and len(model.calls) == 4
-    assert [c.model_settings.tool_choice for c in model.calls] == ["plan", None, None, None]
+    assert studio.state == "finished" and len(model.calls) == 5
+    assert [c.model_settings.tool_choice for c in model.calls] == ["plan", None, None, None, None]
     assert len(studio.ctx.plans) == 1
 
 

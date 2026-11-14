@@ -16,7 +16,7 @@ from agents import Agent, RunContextWrapper, RunHooks
 from .canvas import kind_of, split_batch
 from .context import PaintyContext
 
-_ICONS = {"plan": "📝", "paint": "🖌️", "look": "👀", "finish": "🏁"}
+_ICONS = {"plan": "📝", "paint": "🖌️", "look": "👀", "request_shapes": "🙋", "finish": "🏁"}
 
 
 def _args(context: RunContextWrapper) -> dict[str, Any]:
@@ -45,6 +45,8 @@ def _describe(tool_name: str, a: dict[str, Any]) -> str:
         case "look":
             focus = (a.get("focus") or "").strip()
             return "Looking at the canvas" + (f": {focus}" if focus else "")
+        case "request_shapes":
+            return f"Asking for {a.get('shapes', '?')} more shapes"
         case "finish":
             return f"Finishing “{a.get('title', '')}”"
     return f"Using {tool_name}"
@@ -70,7 +72,8 @@ class ActivityHooks(RunHooks[PaintyContext]):
     async def on_tool_start(self, context, agent, tool) -> None:
         args = _args(context)
         detail = {"paint": lambda: _kinds(args), "finish": lambda: args.get("note", ""),
-                  "plan": lambda: args.get("plan", "")}.get(tool.name, lambda: "")()
+                  "plan": lambda: args.get("plan", ""),
+                  "request_shapes": lambda: args.get("reason", "")}.get(tool.name, lambda: "")()
         await context.context.emit({"type": "phase", "phase": tool.name})
         await context.context.emit(
             {"type": "activity", "kind": "tool", "status": "running",

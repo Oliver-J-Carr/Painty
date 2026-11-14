@@ -303,7 +303,8 @@ def _table(result: CardScore, meta: dict) -> str:
              f"  effort {s.get('reasoning_effort') or 'default'}  vision {'on' if s.get('vision') else 'off'}"
              f"  grid {s.get('grid', 'frame')}  exemplar {'on' if s.get('exemplar') else 'off'}",
              f"shapes {meta.get('shapes_used', '?')} of {meta.get('shapes_budget', '?')}  "
-             f"looks {meta.get('looks_used', '?')} of {meta.get('looks_budget', '?')}", "",
+             f"looks {meta.get('looks_used', '?')}"
+             + (f" of {meta['looks_budget']}" if meta.get("looks_budget") is not None else ""), "",
              f"{'item':<30} {'level':<13} {'score':>6} {'shape':>6} {'colour':>7} {'offset':>8} {'shifted':>8}"]
     for i in result.items:
         colour = "-" if i.colour is None else f"{i.colour:.2f}"

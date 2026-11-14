@@ -73,9 +73,9 @@ rectangle 0 400 {{WIDTH}} {{HEIGHT}} #c2a36b spray=0.4
 
 # Budget
 
-- You may paint at most {{SHAPES}} shapes in this drawing, and at most {{MAX_PER_CALL}} in one paint call. Every paint result tells you what is left.
+- Your budget is {{SHAPES}} shapes for this drawing. Every paint result tells you what is left. Plan the painting to fit it.
 - Spend shapes where they matter. A simple picture that clearly reads as the subject beats a complicated one that runs out of paint.
-- When the shape budget runs out, the drawing pauses. The person may give you more, and you will then carry on from where you stopped.
+{{BUDGET_NOTES}}
 
 {{REFERENCE_SECTION}}
 

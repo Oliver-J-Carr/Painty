@@ -486,7 +486,6 @@ def test_portrait_agent_view_has_a_ruler_down_its_long_side():
 @pytest.mark.parametrize("raw, field, expected", [
     ({"shape_budget": 99999}, "shape_budget", 500),
     ({"shape_budget": "12"}, "shape_budget", 12),
-    ({"look_budget": -3}, "look_budget", 0),
     ({"model": "not-offered"}, "model", "m1"),
     ({"model": "m2"}, "model", "m2"),
     ({"reasoning_effort": "extreme"}, "reasoning_effort", "medium"),

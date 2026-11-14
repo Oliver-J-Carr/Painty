@@ -54,7 +54,7 @@
           <div class="meter" id="looks-meter">
             <span class="meter-label">Looks</span>
             <span class="eyes" id="looks-eyes"></span>
-            <span class="meter-count" id="looks-count">0 of 5</span>
+            <span class="meter-count" id="looks-count">0</span>
           </div>
         </div>
 
@@ -66,14 +66,15 @@
         </div>
 
         <form class="outcome" id="paused" autocomplete="off" hidden>
-          <p class="outcome-title" id="paused-text">Out of shapes.</p>
+          <p class="outcome-title" id="paused-text">Paused.</p>
+          <p class="paused-reason" id="paused-request" hidden></p>
           <div class="outcome-row top-up">
             <div class="top-up-fields" id="top-up-fields">
-              <label>Add shapes <input type="number" id="top-up-shapes" inputmode="numeric"></label>
-              <label id="top-up-looks-field">Add looks <input type="number" id="top-up-looks" inputmode="numeric"></label>
+              <label>Give shapes <input type="number" id="top-up-shapes" inputmode="numeric"></label>
             </div>
             <div class="outcome-actions">
               <button type="submit" class="primary" id="keep-going">Keep going</button>
+              <button type="button" class="ghost-dark" id="deny" hidden>Say no</button>
               <button type="button" class="ghost-dark" id="finish-here">Finish here</button>
             </div>
           </div>
@@ -199,12 +200,10 @@
       </fieldset>
       <fieldset class="dialog-fields group">
         <legend class="field-label">Budget</legend>
-        <div class="field-row three">
+        <div class="field-row">
           <label>Shapes <input type="number" data-setting="shape_budget" inputmode="numeric"></label>
-          <label>Looks <input type="number" data-setting="look_budget" inputmode="numeric"></label>
-          <label>Most per paint call <input type="number" data-setting="max_shapes_per_call" inputmode="numeric"></label>
         </div>
-        <p class="field-help" id="looks-note" hidden>Looks are off because Painty is painting blind. Tick “Let Painty see the canvas” to set them.</p>
+        <p class="field-help" id="budget-help">Painty aims to fit its painting in this many shapes. Near the end it may ask for more, and you say yes or no. It can look at the canvas as often as it likes.</p>
         <p class="field-help" id="budget-note" hidden></p>
       </fieldset>
       <p class="field-help">The painter and budget are remembered for your next painting.</p>

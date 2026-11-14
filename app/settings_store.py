@@ -5,8 +5,8 @@ rather than in .env. They are app-wide on purpose (every browser tab sees
 the same settings) and survive restarts via DATA_DIR/settings.json.
 
 A drawing takes a copy of the settings when it starts, so changing them
-mid-drawing never changes the model, vision or budgets under the agent.
-Keep going top-ups aren't settings: you type them on the paused card each time.
+mid-drawing never changes the model, vision or budget under the agent.
+Shapes given when Painty asks for more aren't settings: you type them on the paused card each time.
 """
 
 from __future__ import annotations
@@ -27,16 +27,12 @@ REASONING_EFFORTS = ("", "none", "minimal", "low", "medium", "high", "xhigh", "m
 # (min, max) for each whole-number setting.
 LIMITS: dict[str, tuple[int, int]] = {
     "shape_budget": (1, 500),
-    "look_budget": (0, 50),
-    "max_shapes_per_call": (1, 100),
 }
 
 
 @dataclass(frozen=True)
 class StudioSettings:
-    shape_budget: int = 60          # shapes the agent may paint per drawing
-    look_budget: int = 5            # times it may look at the canvas per drawing
-    max_shapes_per_call: int = 15   # stops it dumping everything down in one blind batch
+    shape_budget: int = 60          # shapes the agent aims to paint per drawing (it may ask for more)
     vision: bool = True             # eyes on: the agent gets the look tool
     model: str = ""                 # blank = first of PAINTY_MODELS
     reasoning_effort: str = "medium"

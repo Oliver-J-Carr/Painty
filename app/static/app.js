@@ -28,13 +28,14 @@ const PHASES = {
   thinking: "Thinking…",
   paint: "Painting…",
   look: "Looking at the canvas…",
+  request_shapes: "Asking for more shapes…",
   finish: "Finishing…",
 };
 const STATES = {
   connecting: "Connecting…",
   idle: "Ready. Describe a picture to paint.",
   painting: "Thinking…",
-  paused: "Paused. Out of budget.",
+  paused: "Paused.",
   finished: "Finished.",
   stopped: "Stopped.",
   error: "The drawing failed.",
@@ -100,16 +101,21 @@ function setCanvasSize(width, height) {
 }
 
 // ------------------------------------------------------------------ meters
+// A paint call may go past the shape budget (it's painted in full), so the bar can be over.
+// Looks are unlimited (looks_total null), except a benchmark's fixed number; 0 means blind.
 function renderBudget(b) {
   shapesOnCanvas = b.shapes_used;
-  $("shapes-count").textContent = `${b.shapes_used} of ${b.shapes_total}`;
-  $("shapes-fill").style.width = b.shapes_total ? `${(100 * b.shapes_used) / b.shapes_total}%` : "0";
+  const over = Math.max(0, b.shapes_used - b.shapes_total);
+  $("shapes-count").textContent = `${b.shapes_used} of ${b.shapes_total}${over ? ` (${over} over)` : ""}`;
+  $("shapes-fill").style.width = b.shapes_total ? `${Math.min(100, (100 * b.shapes_used) / b.shapes_total)}%` : "0";
+  $("shapes-fill").classList.toggle("over", over > 0);
   $("looks-meter").hidden = b.looks_total === 0;
-  $("looks-count").textContent = `${b.looks_used} of ${b.looks_total}`;
+  const fixed = typeof b.looks_total === "number";
+  $("looks-count").textContent = fixed ? `${b.looks_used} of ${b.looks_total}` : String(b.looks_used);
   const eyes = $("looks-eyes");
   eyes.replaceChildren();
-  // Dots only while they fit on a line; the count says the rest.
-  if (b.looks_total <= 12) {
+  // Dots only for a fixed number that fits on a line; the count says the rest.
+  if (fixed && b.looks_total <= 12) {
     for (let i = 0; i < b.looks_total; i++) eyes.appendChild(el("span", i < b.looks_used ? "used" : ""));
   }
 }
@@ -117,7 +123,7 @@ function renderBudget(b) {
 function previewBudget(settings) {
   renderBudget({
     shapes_used: 0, shapes_total: settings.shape_budget,
-    looks_used: 0, looks_total: settings.vision ? settings.look_budget : 0,
+    looks_used: 0, looks_total: settings.vision ? null : 0,
   });
 }
 
@@ -269,7 +275,7 @@ function applyState(e) {
   show("finished", state === "finished");
   show("halted", state === "stopped" || state === "error");
 
-  if (state === "paused") showTopUp(e);
+  if (state === "paused") showPaused(e);
   if (state === "finished") {
     const score = $("finished-score");
     score.hidden = !e.benchmark_score;
@@ -311,22 +317,29 @@ $("ref-shown").addEventListener("click", () => {
   if (shownReference) openLightbox(shownReference, "The reference image");
 });
 
-// The paused card asks how many shapes and looks to add, filled in with a suggestion for
-// whatever ran out (0 for the rest). A benchmark's budget is fixed: it can only finish here.
-function showTopUp(e) {
+// The paused card. After Painty asks for more shapes: what it asked for and why, with the
+// amount filled in to change, and Keep going (give them) or Say no (it finishes and titles
+// the painting). After the turn limit: Keep going (with any shapes typed) or Finish here.
+// A benchmark's budget is fixed: it can only finish here.
+function showPaused(e) {
   const t = e.top_up;
+  const r = e.request;
   $("keep-going").hidden = !t;
   $("top-up-fields").hidden = !t;
-  $("paused-text").textContent = t ? `${e.reason} How much more should Painty have?`
+  $("deny").hidden = !r;
+  $("finish-here").hidden = Boolean(r);
+  $("paused-request").hidden = !r;
+  $("paused-request").textContent = r ? `“${r.reason}”` : "";
+  $("keep-going").textContent = r ? "Give them" : "Keep going";
+  $("paused-text").textContent = r ? e.reason
+    : t ? `${e.reason} Give Painty more shapes if it needs them, or finish here.`
     : `${e.reason} A benchmark's budget is fixed, so finish here to save it for scoring.`;
+  if (r) setStatus("Painty asks for more shapes.");
   if (!t) return;
   $("top-up-shapes").value = t.shapes;
-  $("top-up-looks-field").hidden = t.looks === null; // painting blind: no looks to add
-  $("top-up-looks").value = t.looks ?? 0;
   if ($("gallery").hidden && !dialog.open) { // ready to type over, unless something's on top
-    const first = t.shapes || t.looks === null ? $("top-up-shapes") : $("top-up-looks");
-    first.focus({ preventScroll: true });
-    first.select();
+    $("top-up-shapes").focus({ preventScroll: true });
+    $("top-up-shapes").select();
   }
 }
 
@@ -406,7 +419,8 @@ async function replay(m) {
 
   let painted = 0, looked = 0;
   const meter = () => renderBudget({ shapes_used: painted, shapes_total: m.shapes_budget,
-                                     looks_used: looked, looks_total: m.looks_budget || 0 });
+                                     looks_used: looked,
+                                     looks_total: m.looks_budget === undefined ? 0 : m.looks_budget });
   meter();
   const s = m.settings || {};
   addEntry({ text: `▶️ Replaying “${m.title || "Untitled"}”`,
@@ -835,9 +849,9 @@ dialog.addEventListener("close", () => {
 $("stop").addEventListener("click", () => send({ type: "stop" }));
 $("paused").addEventListener("submit", (ev) => {
   ev.preventDefault();
-  const looks = $("top-up-looks-field").hidden ? 0 : Number($("top-up-looks").value) || 0;
-  send({ type: "keep_going", shapes: Number($("top-up-shapes").value) || 0, looks });
+  send({ type: "keep_going", shapes: Number($("top-up-shapes").value) || 0 });
 });
+$("deny").addEventListener("click", () => send({ type: "deny" }));
 $("finish-here").addEventListener("click", () => send({ type: "save" }));
 $("save-halted").addEventListener("click", () => send({ type: "save" }));
 $("view-saved").addEventListener("click", () => openGallery(savedId));
@@ -846,7 +860,7 @@ $("paint-again").addEventListener("click", () => { if (lastRun) paintAgain(lastR
 // ------------------------------------------------------------------ settings
 // The settings (painter and budget) live in the New painting dialog. Each input is marked
 // data-setting="name". Every change is saved on the server straight away, so they carry
-// over to the next painting. Keep going top-ups aren't settings: they're typed when paused.
+// over to the next painting. Shapes given when paused aren't settings: they're typed each time.
 const settingInputs = () => document.querySelectorAll("[data-setting]");
 const settingInput = (name) => document.querySelector(`[data-setting="${name}"]`);
 let settingsLocked = false;
@@ -929,20 +943,20 @@ function setupSettings(options, values) {
   fillSettings(values);
 }
 
-// While a benchmark card is chosen, it sets the shape and look budgets and locks them.
-// Your own values are kept aside (and never sent while the card holds the fields), so
-// they come back when the card is removed and stay saved for your next painting.
-const CARD_BUDGET = ["shape_budget", "look_budget"];
-let ownBudget = null; // {shape_budget, look_budget}, while a card holds the fields
+// While a benchmark card is chosen, it sets the shape budget and locks it. Your own value
+// is kept aside (and never sent while the card holds the field), so it comes back when
+// the card is removed and stays saved for your next painting.
+const CARD_BUDGET = ["shape_budget"];
+let ownBudget = null; // {shape_budget}, while a card holds the field
 
 function holdBudget(card) {
   if (!ownBudget) ownBudget = Object.fromEntries(CARD_BUDGET.map((n) => [n, settingInput(n).value]));
   settingInput("shape_budget").value = card.shape_budget;
-  settingInput("look_budget").value = card.look_budget;
   const note = $("budget-note");
   note.textContent = `Set by the benchmark card, the same on every run: ${card.shape_budget} shapes `
-    + `(the card has ${card.shapes}) and ${card.look_budget} looks with vision on, no top-ups.`;
+    + `(the card has ${card.shapes}) and ${card.look_budget} looks with vision on. Painty can't ask for more.`;
   note.hidden = false;
+  $("budget-help").hidden = true;
   syncLooksInput();
 }
 
@@ -951,6 +965,7 @@ function releaseBudget() {
   for (const n of CARD_BUDGET) settingInput(n).value = ownBudget[n];
   ownBudget = null;
   $("budget-note").hidden = true;
+  $("budget-help").hidden = false;
   syncLooksInput();
 }
 
@@ -985,10 +1000,8 @@ function readSettings() {
   return out;
 }
 
-// Looks only matter when Painty can see the canvas, and the dialog says so. A benchmark
-// card holds both budgets. The planning effort only matters with planning on.
+// A benchmark card holds the shape budget. The planning effort only matters with planning on.
 function syncLooksInput() {
-  const blind = !settingInput("vision").checked;
   const cantReason = !capsOf(settingInput("model").value) ? false
     : !capsOf(settingInput("model").value).reasoning?.options.length;
   settingInput("reasoning_effort").disabled = settingsLocked || cantReason;
@@ -997,8 +1010,6 @@ function syncLooksInput() {
   $("ref-pick").disabled = Boolean(ownSight);
   $("benchmark-pick").disabled = Boolean(ownSight);
   settingInput("shape_budget").disabled = settingsLocked || Boolean(ownBudget);
-  settingInput("look_budget").disabled = settingsLocked || Boolean(ownBudget) || blind;
-  $("looks-note").hidden = !blind;
 }
 
 function lockSettings(locked) {
@@ -1952,8 +1963,10 @@ function showDetail(m) {
     ["Planning", s.planning ? `On (effort: ${s.planning_effort || "default"}), `
       + `${(m.plans || []).length} plan${(m.plans || []).length === 1 ? "" : "s"} written` : "Off"],
     ["Shapes", `${m.shapes_used} of ${m.shapes_budget}`],
-    ["Looks", `${m.looks_used} of ${m.looks_budget}`],
+    ["Looks", typeof m.looks_budget === "number" ? `${m.looks_used} of ${m.looks_budget}` : String(m.looks_used)],
     ["Top-ups", String(m.top_ups)],
+    ...((m.requests || []).length ? [["Asked for more", m.requests.map((r) =>
+      `${r.shapes} at shape ${r.shapes_used}: ${r.granted ? `given ${r.granted}` : "turned down"}`).join("; ")]] : []),
     ["Tokens", tokenText({ input: m.input_tokens, cached: m.cached_tokens,
                            output: m.output_tokens, reasoning: m.reasoning_tokens })],
     ["Cost", costInfo(m.cost)],

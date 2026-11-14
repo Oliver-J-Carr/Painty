@@ -1,9 +1,10 @@
 """Tools the painter agent can call.
 
-plan   writes down the agent's plan for the painting (only when planning is on)
-paint  lays down an ordered batch of shapes (the only way to put paint down)
-look   shows the agent a picture of the canvas (only when vision is on)
-finish ends the drawing with a title and a short artist's note
+plan            writes down the agent's plan for the painting (only when planning is on)
+paint           lays down an ordered batch of shapes (the only way to put paint down)
+look            shows the agent a picture of the canvas (only when vision is on)
+request_shapes  asks the person for more shapes near the end (not in a benchmark)
+finish          ends the drawing with a title and a short artist's note
 
 Errors are returned as "Error: ..." text, not raised, so the model can read
 them and try again. A batch is painted only up to its first invalid shape, so
@@ -18,7 +19,7 @@ from __future__ import annotations
 from agents import RunContextWrapper, ToolOutputImage, ToolOutputText, function_tool
 
 from .canvas import check_batch, split_batch
-from .context import Look, PaintyContext, Plan, Stage
+from .context import Look, PaintyContext, Plan, ShapeRequest, Stage
 from .view import DEFAULT_GRID, GRID_STEP, agent_view_png, data_url
 
 Ctx = RunContextWrapper[PaintyContext]
@@ -50,12 +51,34 @@ def canvas_record(c: PaintyContext) -> str:
     return "On the canvas so far, in paint order (from your notes):\n" + "\n".join(lines)
 
 
+# The agent may ask for more shapes once this many or fewer are left: near the end, not up front.
+REQUEST_AT = 10
+REQUEST_MAX = 500  # the most it may ask for at once (the paused card's own limit)
+
+
 def budget_left(c: PaintyContext) -> str:
     b = c.budget
-    text = f"Shapes left: {b.shapes_left} of {b.shapes_total}."
+    if b.shapes_over:
+        text = (f"Shapes: {b.shapes_used} painted, {b.shapes_over} over your budget of "
+                f"{b.shapes_total}, so none are left.")
+    else:
+        text = f"Shapes left: {b.shapes_left} of {b.shapes_total}."
     if c.settings.vision:
-        text += f" Looks left: {b.looks_left} of {b.looks_total}."
+        if b.looks_total is None:
+            text += f" Looks so far: {b.looks_used}."
+        else:
+            text += f" Looks left: {b.looks_left} of {b.looks_total}."
     return text
+
+
+def out_of_shapes(c: PaintyContext) -> str:
+    """What to do once the shape budget is used up."""
+    if c.benchmark:
+        return "This benchmark's budget is fixed, so call finish now with a title and a note."
+    if c.refused:
+        return "Your request for more shapes was turned down, so call finish now with a title and a note."
+    return ("If the painting is done, or close enough, call finish. If you need a few more shapes "
+            "to finish what you are working on, call request_shapes.")
 
 
 @function_tool
@@ -107,6 +130,10 @@ async def paint(ctx: Ctx, shapes: list[str], note: str) -> str:
     fill and extras, such as "trail 150 300 60@100 50@80 #5a3a1a smooth=1".
     Your instructions explain the shapes, fills and extras.
 
+    Stay within your shape budget. A batch that goes past it is still painted in
+    full, but after that nothing more can be painted unless you are given more
+    shapes.
+
     Paint is permanent. Each shape is laid on top of everything painted before it,
     so where shapes overlap the later one covers the earlier one (partly, if its
     opacity is below 1). Nothing can be erased: fix a mistake by painting over it.
@@ -126,16 +153,16 @@ async def paint(ctx: Ctx, shapes: list[str], note: str) -> str:
     """
     c = ctx.context
     b = c.budget
-    limit = c.settings.max_shapes_per_call
     texts = split_batch(shapes)
     if not texts:
         return "Error: the batch is empty. Send at least one shape."
-    if len(texts) > limit:
-        return (f"Error: nothing was painted. A batch can hold at most {limit} shapes and this one "
-                f"has {len(texts)}. Split it into smaller batches, in the same order.")
-    if len(texts) > b.shapes_left:
-        return (f"Error: nothing was painted. Only {b.shapes_left} shapes are left in your budget "
-                f"and this batch has {len(texts)}. Choose the most important ones.")
+    if c.refused:
+        return f"Error: nothing was painted. {out_of_shapes(c)}"
+    if b.shapes_left <= 0:
+        return f"Error: nothing was painted. Your shape budget is used up. {out_of_shapes(c)}"
+    if c.benchmark and len(texts) > b.shapes_left:  # a fixed budget: no going over
+        return (f"Error: nothing was painted. Only {b.shapes_left} shapes are left in this benchmark's "
+                f"fixed budget and this batch has {len(texts)}. Choose the most important ones.")
 
     good, errors, notes = check_batch(texts, c.canvas.width, c.canvas.height)
     listed = "\n".join(f"- {e}" for e in errors)
@@ -168,7 +195,8 @@ async def paint(ctx: Ctx, shapes: list[str], note: str) -> str:
         result += "\nNotes: " + "; ".join(notes) + "."
     result += "\n" + canvas_record(c)
     if b.shapes_left == 0:
-        result += "\nYour shape budget is used up, so the drawing pauses here."
+        over = f" ({b.shapes_over} over)" if b.shapes_over else ""
+        result += f"\nYour shape budget is used up{over}. {out_of_shapes(c)}"
     return result
 
 
@@ -180,21 +208,17 @@ async def look(ctx: Ctx, focus: str) -> list[ToolOutputText | ToolOutputImage]:
     to help you match what you see to coordinates. Any grid, ruler or numbers are
     only in your view: they are not paint and are not part of the picture.
 
-    Each look uses one look from your budget, so look after a meaningful stage
-    rather than after every small change.
+    Each look adds a picture to the conversation, so look after a meaningful
+    stage rather than after every small change.
 
     Args:
         focus: What you want to check, e.g. "are the eyes level and evenly spaced?"
     """
     c = ctx.context
     b = c.budget
-    if b.looks_left <= 0:
-        if c.benchmark:  # a fixed budget: no top-ups, so carry on
-            return [ToolOutputText(text="Error: no looks left. Carry on from what you already know, "
-                                        "or call finish if the painting is done.")]
-        c.wants_look = True  # the run pauses after this, to ask the person for more looks
-        return [ToolOutputText(text="Error: no looks left. The drawing pauses here while the person "
-                                    "decides whether to give you more.")]
+    if b.looks_left == 0:  # only a benchmark has a fixed number of looks
+        return [ToolOutputText(text="Error: no looks left. Carry on from what you already know, "
+                                    "or call finish if the painting is done.")]
 
     grid = c.settings.grid
     png = agent_view_png(c.canvas.to_svg(), c.canvas.width, c.canvas.height, grid)
@@ -207,6 +231,44 @@ async def look(ctx: Ctx, focus: str) -> list[ToolOutputText | ToolOutputImage]:
     text = f"Look {b.looks_used}: the canvas after {len(c.canvas)} shapes. " + GRID_RESULT.get(
         grid, GRID_RESULT[DEFAULT_GRID]) + f" {budget_left(c)}"
     return [ToolOutputText(text=text), ToolOutputImage(image_url=url, detail="high")]
+
+
+@function_tool
+async def request_shapes(ctx: Ctx, shapes: int, reason: str) -> str:
+    """Ask the person for more shapes, to finish what you are working on.
+
+    Only for the end of a painting, when your budget is nearly used up: you can
+    ask once 10 or fewer shapes are left (or none). Always try to fit the painting
+    in your budget first. Ask for what you really need, rounded to the nearest 10.
+    The drawing pauses while the person decides. If they say yes, carry on
+    painting. If they say no, call finish straight away.
+
+    Args:
+        shapes: How many more shapes you need, rounded to the nearest 10, e.g. 20.
+        reason: A short message saying what you need them for, e.g. "the tiger's
+            stripes and whiskers".
+    """
+    c = ctx.context
+    b = c.budget
+    if c.benchmark:
+        return f"Error: {out_of_shapes(c)}"
+    if c.refused:
+        return f"Error: you already asked and were turned down. {out_of_shapes(c)}"
+    if b.shapes_left > REQUEST_AT:
+        return (f"Error: you still have {b.shapes_left} shapes left. Ask only near the end, once "
+                f"{REQUEST_AT} or fewer are left. Carry on painting within your budget.")
+    why = (reason or "").strip()
+    if not why:
+        return "Error: say what you need the shapes for in reason, then ask again."
+    try:
+        wanted = int(shapes)
+    except (TypeError, ValueError):
+        return "Error: shapes must be a whole number, such as 20."
+    wanted = max(10, min(REQUEST_MAX, int(wanted / 10 + 0.5) * 10))
+    c.requests.append(ShapeRequest(wanted, why[:MAX_NOTE], b.shapes_used))
+    c.asking = True  # the run pauses after this, for the person to answer
+    return (f"Asked for {wanted} more shapes. The drawing pauses while the person decides. "
+            f"{budget_left(c)}")
 
 
 @function_tool
@@ -225,7 +287,9 @@ async def finish(ctx: Ctx, title: str, note: str) -> str:
     return "Finished."
 
 
-def tools_for(vision: bool, planning: bool = False) -> list:
+def tools_for(vision: bool, planning: bool = False, requests: bool = True) -> list:
     """With vision off, the look tool doesn't exist at all for the agent; with
-    planning off, neither does the plan tool."""
-    return ([plan] if planning else []) + ([paint, look, finish] if vision else [paint, finish])
+    planning off, neither does the plan tool; and in a benchmark (fixed budget),
+    neither does request_shapes."""
+    return (([plan] if planning else []) + [paint] + ([look] if vision else [])
+            + ([request_shapes] if requests else []) + [finish])

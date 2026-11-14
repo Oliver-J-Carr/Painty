@@ -1,4 +1,4 @@
-"""The painter agent: one agent, three or four tools, rebuilt for each drawing."""
+"""The painter agent: one agent, three to five tools, rebuilt for each drawing."""
 
 from __future__ import annotations
 
@@ -14,11 +14,24 @@ from .exemplar import SHEET, SHEETS
 from .prompts import EXEMPLAR, PAINTER_PROMPT, PLANNING, REFERENCE, VISION_OFF, VISION_ON, fill
 from .providers import agent_model, provider_settings
 from .settings_store import StudioSettings
-from .tools import tools_for
+from .tools import REQUEST_AT, tools_for
 from .view import DEFAULT_GRID, GRID_NOTES
 
-PAUSED = "paused: shape budget used up"
-PAUSED_LOOKS = "paused: wanted to look with no looks left"
+PAUSED_REQUEST = "paused: asked for more shapes"
+
+# How the budget works: shapes can be asked for, except in a benchmark, whose budget is fixed.
+BUDGET_REQUESTS = (
+    "- A paint call that goes past the budget is still painted in full, but after that nothing more "
+    "can be painted. Then, if the painting is done or close enough, call `finish`.\n"
+    "- If you are near the end and need a few more shapes to finish what you are working on, call "
+    "`request_shapes` with how many you need (rounded to the nearest 10) and what for. You can ask "
+    "once {{REQUEST_AT}} or fewer shapes are left, never earlier: plan the painting to fit the budget. "
+    "The drawing pauses while the person decides. If they say no, call `finish` straight away.")
+BUDGET_FIXED = ("- This budget is fixed: no more shapes can be given. A paint call that goes past it is "
+                "refused, so choose the most important shapes. When it is used up, call `finish`.")
+# How many looks it may take: unlimited, except in a benchmark.
+LOOKS_FREE = "as often as you need"
+LOOKS_FIXED = "up to {{LOOKS}} times in this drawing"
 
 # The reference section's last line depends on whether Painty can see its canvas.
 REFERENCE_CHECK_SEEN = ("When you look, compare your canvas with the reference: what is in the wrong place, "
@@ -48,7 +61,9 @@ def _instructions(ctx: RunContextWrapper[PaintyContext], agent: Agent) -> str:
     w, h = c.canvas.width, c.canvas.height
     grid = c.settings.grid if c.settings.grid in GRID_NOTES else DEFAULT_GRID
     note = GRID_NOTES[grid]
-    vision = fill(VISION_ON, LOOKS=b.looks_total, GRID_NOTE=note) if c.settings.vision else VISION_OFF
+    looks = LOOKS_FREE if b.looks_total is None else fill(LOOKS_FIXED, LOOKS=b.looks_total)
+    vision = fill(VISION_ON, LOOKS=looks, GRID_NOTE=note) if c.settings.vision else VISION_OFF
+    budget = BUDGET_FIXED if c.benchmark else fill(BUDGET_REQUESTS, REQUEST_AT=REQUEST_AT)
     reference = ""
     if c.reference:
         check = REFERENCE_CHECK_SEEN if c.settings.vision else REFERENCE_CHECK_BLIND
@@ -60,7 +75,7 @@ def _instructions(ctx: RunContextWrapper[PaintyContext], agent: Agent) -> str:
                         GRID_NOTE=note.replace("canvas", "sheet"))
     text = fill(PAINTER_PROMPT, SHAPE_WORD=SHAPE_WORDS[c.canvas.shape], WIDTH=w, HEIGHT=h,
                 CX=w // 2, CY=h // 2, SHAPES=b.shapes_total,
-                MAX_PER_CALL=c.settings.max_shapes_per_call, VISION_SECTION=vision,
+                BUDGET_NOTES=budget, VISION_SECTION=vision,
                 REFERENCE_SECTION=reference, EXEMPLAR_SECTION=exemplar,
                 PLANNING_SECTION=PLANNING if c.settings.planning else "")
     return re.sub(r"\n{3,}", "\n\n", text)  # no gap where an optional section is left out
@@ -70,24 +85,23 @@ def _stop_when_done(ctx: RunContextWrapper[PaintyContext],
                     results: list[FunctionToolResult]) -> ToolsToFinalOutputResult:
     """Called by the SDK after each round of tool calls: should the run end here?
 
-    It ends when the agent called finish, when the shape budget is used up, or
-    when it tried to look with no looks left (outside a benchmark). Ending here
-    (rather than raising) keeps the conversation history complete, so "keep
-    going" can resume it exactly where it stopped.
+    It ends when the agent called finish, or asked for more shapes (the person
+    answers on the paused card). Running out of shapes doesn't end it: the agent
+    decides whether to finish or ask. Ending here (rather than raising) keeps the
+    conversation history complete, so the drawing can resume exactly where it stopped.
     """
     c = ctx.context
     if c.finished:
         return ToolsToFinalOutputResult(is_final_output=True, final_output="finished")
-    if c.budget.shapes_left <= 0:
-        return ToolsToFinalOutputResult(is_final_output=True, final_output=PAUSED)
-    if c.wants_look:
-        return ToolsToFinalOutputResult(is_final_output=True, final_output=PAUSED_LOOKS)
+    if c.asking:
+        return ToolsToFinalOutputResult(is_final_output=True, final_output=PAUSED_REQUEST)
     return ToolsToFinalOutputResult(is_final_output=False)
 
 
-def build_painter_agent(settings: StudioSettings, model=None,
-                        cache_key: str | None = None) -> Agent[PaintyContext]:
+def build_painter_agent(settings: StudioSettings, model=None, cache_key: str | None = None,
+                        requests: bool = True) -> Agent[PaintyContext]:
     """model overrides settings.model (tests pass a scripted fake model).
+    requests: whether it may ask for more shapes (not in a benchmark).
 
     cache_key is sent as the prompt_cache_key, so every call in one drawing,
     across keep going segments, is routed to the same prompt cache.
@@ -96,7 +110,7 @@ def build_painter_agent(settings: StudioSettings, model=None,
     return Agent[PaintyContext](
         name="Painty",
         instructions=_instructions,
-        tools=tools_for(settings.vision, settings.planning),
+        tools=tools_for(settings.vision, settings.planning, requests),
         model=model or agent_model(settings.model),
         # One tool call per model turn, so paint always lands in the order planned.
         model_settings=ModelSettings(

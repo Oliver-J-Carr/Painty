@@ -23,8 +23,13 @@ _event_ids = itertools.count(1)
 
 @dataclass
 class Budget:
+    """The shape budget, and the looks taken. shapes_used may pass shapes_total: a
+    paint call that crosses the budget is painted in full (its shapes are already
+    written and paid for), and then no more is painted until more shapes are given.
+    looks_total is None when looks are unlimited (only a benchmark has a fixed
+    number), and 0 when painting blind."""
     shapes_total: int
-    looks_total: int
+    looks_total: int | None = None
     shapes_used: int = 0
     looks_used: int = 0
     top_ups: int = 0
@@ -34,19 +39,33 @@ class Budget:
         return max(0, self.shapes_total - self.shapes_used)
 
     @property
-    def looks_left(self) -> int:
-        return max(0, self.looks_total - self.looks_used)
+    def shapes_over(self) -> int:
+        return max(0, self.shapes_used - self.shapes_total)
 
-    def top_up(self, shapes: int, looks: int) -> None:
-        self.shapes_total += shapes
-        self.looks_total += looks
+    @property
+    def looks_left(self) -> int | None:
+        return None if self.looks_total is None else max(0, self.looks_total - self.looks_used)
+
+    def top_up(self, shapes: int) -> None:
+        """More shapes, on top of everything used so far: an overshoot is counted
+        against them, so the agent gets what it was given beyond what it has painted."""
+        self.shapes_total = max(self.shapes_total, self.shapes_used) + shapes
         self.top_ups += 1
 
     def to_dict(self) -> dict:
         return {"shapes_used": self.shapes_used, "shapes_total": self.shapes_total,
-                "shapes_left": self.shapes_left, "looks_used": self.looks_used,
-                "looks_total": self.looks_total, "looks_left": self.looks_left,
-                "top_ups": self.top_ups}
+                "shapes_left": self.shapes_left, "shapes_over": self.shapes_over,
+                "looks_used": self.looks_used, "looks_total": self.looks_total,
+                "looks_left": self.looks_left, "top_ups": self.top_ups}
+
+
+@dataclass
+class ShapeRequest:
+    """The agent asking for more shapes near the end of a painting."""
+    shapes: int          # how many it asked for, rounded to the nearest 10
+    reason: str          # what it needs them for
+    shapes_used: int     # shapes on the canvas when it asked
+    granted: int | None = None  # how many it was given (0 = turned down); None while undecided
 
 
 @dataclass
@@ -126,7 +145,9 @@ class PaintyContext:
     tokens: Tokens = field(default_factory=Tokens)      # every model call so far, all segments
     finish_title: str | None = None    # set by the finish tool
     finish_note: str = ""
-    wants_look: bool = False           # it called look with none left: pause to ask for more
+    requests: list[ShapeRequest] = field(default_factory=list)  # each request for more shapes
+    asking: bool = False               # it just asked for more shapes: pause for the answer
+    refused: bool = False              # a request was turned down: it may only finish now
     started_at: float = field(default_factory=time.time)
     # Serialises painting, so batches always land in the order they were made.
     paint_lock: asyncio.Lock = field(default_factory=asyncio.Lock)

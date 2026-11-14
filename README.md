@@ -17,11 +17,11 @@ It's an experiment in agent adaptation. The agent can't fall back on SVG or CSS 
 - **The agent can see its own work.** Each look sends a PNG snapshot to the *same* model doing the painting, with a ruler and grid in its view to help it map what it sees to coordinates. You choose the grid: a ruler frame round the picture, a grid drawn on the picture (so it stays exactly canvas-sized), or none.
 - **Vision on or off.** Run the same prompt with and without sight and compare the results.
 - **Plan first, or not.** Turn on planning and Painty's first move is to write down a plan: the parts in paint order, back to front, and what sits in front of what. It has its own reasoning effort. The plan shows in the feed, stays in Painty's conversation for the whole drawing, and is saved with the painting. Painty can revise it as it goes.
-- **Budgets you control.** Shape and look budgets, plus a cap on shapes per call, set in the New painting dialog alongside the model and vision.
+- **A shape budget you control,** set in the New painting dialog alongside the model and vision. Painty can look at its canvas as often as it likes, and the feed counts its looks.
 - **Paint again.** Re-run a painting from its finished card or from the gallery. The New painting dialog opens filled in with its prompt, reference image, canvas and settings, so you can change one thing and compare.
 - **Export and import.** The Export button on a gallery painting, and on the finished card, downloads the painting as a PNG, as a card (the painting framed, with any reference image small on its corner, and its title, model, prompt, shapes, cost, and tokens in and out underneath, shaped to the canvas) or as a zip of every file. Each download is named from the painting's title and model. Import, in the gallery, adds exported zips back, here or in another Painty. Delete, on a painting's page, removes it and its files for good, after asking.
 - **Replay.** Press Replay on a gallery painting and it's painted again on the studio canvas, shape by shape, with each batch's note, every look and any plan appearing in the feed at the point it happened. Speed it up to 2×, 4×, 8× or 16× while it plays (remembered in your browser), or skip to the end at any time.
-- **Keep going.** When the shapes run out, or Painty wants to look with no looks left, the drawing pauses and asks how many shapes and looks to add. Type the amounts and the agent carries on exactly where it stopped.
+- **Asking for more.** A paint call that goes past the budget is still painted in full (its shapes are already written and paid for). Near the end, with 10 or fewer shapes left, Painty can ask for more: how many (in tens) and what for. The drawing pauses and you give it the shapes (the amount is yours to change) or say no, and then it finishes and titles the painting.
 - **Watch it work.** Shapes appear live, layer by layer. A feed shows every batch, the agent's notes, and a thumbnail of everything it looked at.
 - **Gallery.** Every finished painting is saved with its prompt, settings, shapes, looks, token use and its cost (billed by OpenRouter, or estimated from prices), ready to compare or share. Step through a snapshot of every stage (one per paint call): the stages the agent looked at are marked with an eye, and can switch to exactly what it saw, grid and all. Each model has its own colour, and you can star your favourites. Filters for developers and favourites stack, and each one's count shows how many paintings it would add to what's showing. Choosing a developer shows its models as sub-filters.
 - **Benchmarks.** Benchmark paintings have a section of their own, opened with Benchmarks in the top bar. It works like the gallery, with the same filters and a chip for each card, and each tile names its card and shows its score.
@@ -61,7 +61,7 @@ To run the tests: `python3 -m venv .venv && . .venv/bin/activate && pip install 
 
 ## Settings
 
-These are set on screen and saved between restarts. Changes apply to the next drawing. They're all in the **New painting** dialog, so you can change them as you ask for a picture. What "Keep going" adds isn't a setting: you type it on the paused card each time (it suggests 20 shapes and 2 looks for whatever ran out, 0 for the rest).
+These are set on screen and saved between restarts. Changes apply to the next drawing. They're all in the **New painting** dialog, so you can change them as you ask for a picture. How many shapes to give when Painty asks for more isn't a setting: you type it on the paused card each time (it's filled in with what Painty asked for).
 
 | Setting | Default | What it does |
 |---|---|---|
@@ -72,9 +72,7 @@ These are set on screen and saved between restarts. Changes apply to the next dr
 | Grid on what Painty sees | Grid on the image | How every image Painty sees (its looks, the reference and the exemplar) marks positions: **Grid on the image** (lines and small numbers drawn on the picture, exactly canvas-sized), **Ruler frame** (numbered margin round the picture, 60 px bigger than the canvas) or **None**. Models, smaller ones especially, tend to do better when the image is exactly the canvas's size |
 | Let Painty write a plan before painting | Off | Painty's first turn is forced to call `plan`: composition, parts in paint order with boxes and colours, which parts overlap and which is in front, and stages. The plan costs no shapes, stays in the conversation, can be revised later, and is saved as `plan.txt` in the gallery. Some models, such as Claude Sonnet 5.5 and Opus 5.5, refuse forced tool calls, so they are only asked to plan, and the feed and `plan_forced` in `meta.json` say so |
 | Planning effort | The model's own | The reasoning effort for that planning turn only. Later turns use Reasoning effort. Set to the model's default whenever you pick a model, even while planning is off, so it's ready when you turn planning on. Greyed out while planning is off |
-| Shapes | 60 | Shapes per drawing |
-| Looks | 5 | Looks per drawing |
-| Most shapes in one paint call | 15 | Stops the agent painting everything in one blind batch |
+| Shapes | 60 | The shapes Painty aims to fit the painting in. It may ask for more near the end |
 
 ## Models
 
@@ -112,7 +110,7 @@ Each benchmark card is a picture painted by Painty's own renderer from shapes in
 | Letters | HAZE in straight lines, and SOUP, which needs curves |
 | Combined | A little of each, on one card |
 
-To run one, open **New painting** and choose a card under **Reference image**. It sets the canvas shape and fills in a standard prompt (you can edit it). It also sets and locks the budget, the same on every run so scores compare fairly: three times the card's own shapes plus 10 (rounded up to 5), because every correction is a new shape painted over the mistake, and 3 looks. A benchmark can't keep going: when its shapes run out, finish it there. Vision is still your choice, so you can compare blind runs (no looks) with sighted ones. See a card at `/benchmark/<name>.png` and its shapes at `/benchmark/<name>.txt` (`basic`, `intermediate`, `solids`, `effects`, `letters`, `combined`).
+To run one, open **New painting** and choose a card under **Reference image**. It sets the canvas shape and fills in a standard prompt (you can edit it). It also sets and locks the budget, the same on every run so scores compare fairly: three times the card's own shapes plus 10 (rounded up to 5), because every correction is a new shape painted over the mistake, and 3 looks. A benchmark can't go over its budget or ask for more: a paint call past it is refused, and when its shapes run out, Painty finishes. Vision is still your choice, so you can compare blind runs (no looks) with sighted ones. See a card at `/benchmark/<name>.png` and its shapes at `/benchmark/<name>.txt` (`basic`, `intermediate`, `solids`, `effects`, `letters`, `combined`).
 
 Each benchmark painting is scored when it's saved. The score shows on the finished card and on the painting's gallery tile. The painting's page breaks it down item by item and shows the card, the painting and the difference side by side.
 
@@ -155,9 +153,9 @@ See `.env.example` for defaults.
 
 The design and the reasons behind it are in [`docs/PDD.md`](docs/PDD.md). In short:
 
-- The agent has three tools: `paint` (an ordered batch of shapes, each written as one short line such as `ellipse 196 180 316 300 #f2c9a0`), `look` (a PNG of the canvas, if vision is on) and `finish` (a title and a note).
+- The agent has four tools: `paint` (an ordered batch of shapes, each written as one short line such as `ellipse 196 180 316 300 #f2c9a0`), `look` (a PNG of the canvas, if vision is on), `request_shapes` (more shapes near the end, not in a benchmark) and `finish` (a title and a note).
 - Every shape becomes one SVG fragment. Your browser shows those fragments, and the server rasterises the very same SVG for the agent's eyes and the gallery, so what you see is exactly what the agent sees.
-- Budgets are enforced in code. When shapes run out, or the agent tries to look with no looks left, the run ends cleanly with its history kept, so "Keep going" can resume the same conversation with the shapes and looks you add.
+- The budget is enforced in code. Once it's used up nothing more is painted, and the agent either finishes or asks for more. Asking ends the run cleanly with its history kept, so it resumes the same conversation with the shapes you give, or with your no.
 
 ## Roadmap
 

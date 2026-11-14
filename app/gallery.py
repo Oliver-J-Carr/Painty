@@ -51,7 +51,7 @@ class SaveRequest:
                              # without finish) or "saved" (you saved it by hand)
     settings: dict
     shapes_budget: int       # total, including any top-ups
-    looks_budget: int
+    looks_budget: int | None  # None: no limit (only a benchmark has one); 0 when painting blind
     reference: bytes | None = None       # the reference image, clean PNG at canvas size
     reference_view: bytes | None = None  # the same in the drawing's grid mode, as the agent saw it
     exemplar: tuple[bytes, ...] = ()     # the exemplar sheets as the agent saw them, if shown
@@ -64,6 +64,7 @@ class SaveRequest:
     plan_forced: bool | None = None  # planning on: was the planning turn forced?
     billed_usd: float | None = None  # what OpenRouter charged (native models don't say)
     top_ups: int = 0
+    requests: list[dict] = field(default_factory=list)  # each request for more shapes, and the answer
     input_tokens: int = 0
     cached_tokens: int = 0      # part of input_tokens, served from the prompt cache
     cache_write_tokens: int = 0  # part of input_tokens, written to the prompt cache
@@ -159,6 +160,9 @@ class Gallery:
             # it to plan. Missing when planning was off, and on older paintings.
             **({"plan_forced": req.plan_forced} if req.plan_forced is not None else {}),
             "top_ups": req.top_ups,
+            # Each time Painty asked for more shapes: how many, what for, how many were on
+            # the canvas, and how many it was given (0 = turned down). Older paintings have none.
+            "requests": req.requests,
             # How the model wrote its shapes. Older paintings (JSON shapes) have no
             # shape_format and no shapes.txt.
             "shape_format": "notation",
