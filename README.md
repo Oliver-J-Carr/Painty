@@ -1,15 +1,221 @@
 # Painty
 
-**Can an AI agent learn to paint with a tool it has never seen?**
+**Can an AI model adapt to a creative system it's never seen before?**
 
-Painty gives an agent a blank canvas (square, landscape or portrait) and six shapes: line, rectangle, ellipse, triangle, diamond and trail. Click **New painting**, pick the canvas shape and type what you want, such as *"a ginger cat sitting in the sun"* or *"a stripy tiger with blue and green stripes"*. The agent paints it one tool call at a time, layering shapes like real paint. With vision on, it can stop and look at its own work, then fix what it doesn't like.
+![Seven paintings made by AI models using Painty: a sleeping fox, a cat as the Mona Lisa, a restored shopfront, a knight on a tricycle, an impressionist AI, a golden retriever and a wilting rose](docs/images/hero.jpg)
 
-It's an experiment in agent adaptation. The agent can't fall back on SVG or CSS it memorised in training. It has to learn a new, custom paint system from its instructions and turn what it knows about cats, faces and tigers into coordinates and layers.
+Ask a model for a drawing and it will usually reach for SVG, a format it has seen countless times in training. Painty takes that away. It gives the model a blank canvas, six shapes, and a paint system it can only learn from one page of instructions and two exemplar sheets. The model paints in stages, layering shapes like real paint, and can stop to look at its own work and paint over what it doesn't like.
+
+Every picture on this page was painted that way, by a language model calling a few simple tools: `paint`, `look` and `finish`.
+
+<!-- TODO (Oliver): add the video link here once it's uploaded, for example:
+**▶ [Watch the 8-minute demo](https://youtu.be/XXXXXXXX)**
+-->
+
+**[Gallery](docs/GALLERY.md)** · **[Set it up](docs/SETUP.md)** · **[How it's designed](docs/PDD.md)** · **[Suggest a painting](../../issues/new?template=painting-idea.md)**
+
+## How it works
+
+![The Painty studio part-way through a painting: the canvas on the left, and on the right a feed of each stage's note and the snapshots the model looked at](docs/images/studio.jpg)
+
+- **Six shapes, one line each.** Line, rectangle, ellipse, triangle, diamond and trail. A shape is one short line of text such as `ellipse 196 180 316 300 #f2c9a0`: two corners mark out a box and the shape fills it. Optional modifiers, which the model can add to any shape, give rotation, skew, colour blends, spray, soft edges, and strokes that bend and taper.
+- **Paint is permanent.** Each shape covers what's beneath it. There is no undo and no eraser, so a mistake can only be painted over.
+- **Three tools do the painting.** `paint` lays down a batch of shapes with a note saying what they are. `look` sends the model a snapshot of its own canvas with a grid drawn on, so it can check its work. `finish` gives the painting a title and signs it off. A fourth, `request_shapes`, lets it ask for more shapes near the end.
+- **Learnt from the prompt.** The model gets one page of instructions and two exemplar sheets that show the system in action. Nothing else.
+
+It isn't total novelty: a model still needs to know what a tiger looks like. But it has to translate that knowledge into a system it is meeting for the first time.
+
+## What it can do
+
+**Follow a prompt.** Text in, painting out. The titles are the models' own.
+
+<table><tr>
+<td width="33%"><img src="docs/gallery/mona-meowsa-gpt-6-1-sol.jpg" alt="Mona Meowsa: the Mona Lisa as a mischievous cat"></td>
+<td width="33%"><img src="docs/gallery/sir-pedalot-and-his-noble-steed-gpt-6-1-sol.jpg" alt="Sir Pedalot and His Noble Steed: a knight on a child's tricycle"></td>
+<td width="33%"><img src="docs/gallery/fading-crimson-rose-gemini-4-argon.jpg" alt="Fading Crimson Rose: a slightly wilted red rose"></td>
+</tr></table>
+
+**Start from a picture.** What Painty does with it is set by the prompt: recreate it, borrow its colours, or change it. Below, GPT-6.1 Sol was shown a derelict building and asked to paint it brought back to life (the inset is what it was given). That one was an experiment: the prompt also told it to paint a test outline first and check the perspective before committing to the final painting.
+
+<table><tr>
+<td width="33%"><img src="docs/gallery/fleur-open-again-gpt-6-1-sol.jpg" alt="Fleur, Open Again: a derelict building repainted as a working florist"></td>
+<td width="33%"><img src="docs/gallery/black-ceramic-latte-mug-gpt-6-1-sol.jpg" alt="Black Ceramic Latte Mug: a mug recreated from a picture, without its background"></td>
+<td width="33%"><img src="docs/gallery/scarlet-world-gpt-6-1-sol.jpg" alt="Scarlet World: a planet painted in colours taken from a photo"></td>
+</tr></table>
+
+**Be guided by a style.** Cubism, Renaissance, Impressionism, including each style's "interpretation of an Artificial Intelligence".
+
+<table><tr>
+<td width="33%"><img src="docs/gallery/lesprit-artificiel-cubist-ai-gemini-4-argon.jpg" alt="L'Esprit Artificiel: a cubist interpretation of an AI"></td>
+<td width="33%"><img src="docs/gallery/the-allegory-of-artificial-intellect-gpt-6-1-sol.jpg" alt="The Allegory of Artificial Intellect: a Renaissance interpretation of an AI"></td>
+<td width="33%"><img src="docs/gallery/luminous-mind-impressionist-ai-gemini-4-argon.jpg" alt="Luminous Mind: an impressionist interpretation of an AI"></td>
+</tr></table>
+
+**Paint from a name alone.** Hojakdo (호작도) is a traditional Korean folk painting of a tiger and a magpie. Four models were given only the prompt.
+
+<table><tr>
+<td width="25%"><img src="docs/gallery/hojakdo-tiger-and-magpie-gpt-6-1-sol.jpg" alt="Hojakdo, Tiger and Magpie, painted by GPT-6.1 Sol"></td>
+<td width="25%"><img src="docs/gallery/hojakdo-tiger-and-magpie-gpt-6-astra.jpg" alt="Hojakdo, Tiger and Magpie, painted by GPT-6 Astra"></td>
+<td width="25%"><img src="docs/gallery/hojakdo-tiger-and-magpie-under-the-pine-gemini-4-argon.jpg" alt="Hojakdo Tiger and Magpie Under the Pine, painted by Gemini 4 Argon"></td>
+<td width="25%"><img src="docs/gallery/hojakdo-tiger-and-magpie-under-the-pine-claude-fable-5-2.jpg" alt="Hojakdo, Tiger and Magpie under the Pine, painted by Claude Fable 5.2"></td>
+</tr></table>
+
+**Paint without looking.** Vision can be switched off, so the model never sees its canvas and has to paint from the numbers alone. Each of these four models still landed its tiger, though the style can shift.
+
+![A stripy tiger painted by four models, each with vision on and with vision off](docs/images/vision-off.jpg)
+
+There are more in the **[gallery](docs/GALLERY.md)**.
+
+## What I found
+
+These are results from my own runs, mostly one run per model, so treat them as observations and not a league table.
+
+### Same dog, different models
+
+To test reproduction, I gave many models the same challenge: the same black and white picture, and the prompt "Recreate this image, but with colour". Costs marked ≈ are estimated from the run's token counts at list prices; the rest are what OpenRouter billed.
+
+**OpenAI.** The GPT models scale neatly: bigger model, better dog. Astra performed better than Sol, with better reproduction of the eyes, positioning of the teeth and tongue, and soft edges, but it did all this at over seven times the cost.
+
+![The dog painted by GPT-6 Luna, GPT-6.1 Terra, GPT-6.1 Sol and GPT-6 Astra](docs/images/models-dog-openai.jpg)
+
+| Model | Shapes | Looks | Time | Cost |
+|---|---|---|---|---|
+| GPT-6 Luna | 331 | 10 | 3 min 59 s | ≈ $0.02 |
+| GPT-6.1 Terra | 242 | 5 | 2 min 0 s | ≈ $0.08 |
+| GPT-6.1 Sol | 247 | 3 | 2 min 15 s | ≈ $0.14 |
+| GPT-6 Astra | 292 | 4 | 5 min 29 s | ≈ $1.02 |
+
+**Google.** Gemini 3.8 Flash kept painting over its own work, trying to correct it. Hydrogen's is simpler, but reasonably done. Argon and Carbon are both up with the best; Carbon places the teeth and tongue a little better, but its run cost about twice as much.
+
+![The dog painted by Gemini 3.8 Flash, Gemini 4 Hydrogen, Gemini 4 Argon and Gemini 4 Carbon](docs/images/models-dog-google.jpg)
+
+| Model | Shapes | Looks | Time | Cost |
+|---|---|---|---|---|
+| Gemini 3.8 Flash | 235 | 5 | 2 min 27 s | $0.18 |
+| Gemini 4 Hydrogen | 120 | 4 | 1 min 42 s | $0.18 |
+| Gemini 4 Argon | 235 | 3 | 3 min 22 s | $0.18 |
+| Gemini 4 Carbon | 247 | 3 | 8 min 1 s | $0.40 |
+
+**Anthropic.** Claude Haiku, Sonnet and Opus all struggled with this one. Fable 5.2, a very recent model, is up with the best, though it was the most expensive run here.
+
+![The dog painted by Claude Haiku 5.5, Claude Sonnet 5.5, Claude Opus 5.5 and Claude Fable 5.2](docs/images/models-dog-anthropic.jpg)
+
+| Model | Shapes | Looks | Time | Cost |
+|---|---|---|---|---|
+| Claude Haiku 5.5 | 19 | 0 | 18 s | $0.003 |
+| Claude Sonnet 5.5 | 28 | 1 | 25 s | $0.02 |
+| Claude Opus 5.5 | 96 | 4 | 88 s | $0.22 |
+| Claude Fable 5.2 | 181 | 3 | 5 min 0 s | $1.35 |
+
+**Other labs.** Muse Spark and Qwen fell short, and Kimi's is detailed, but messy. Gemma, a small open model, struggled most, as you might expect at its size.
+
+![The dog painted by Meta Muse Spark 1.3, Qwen3.8 Max, Kimi K3.1 Pro and Gemma 4 31B](docs/images/models-dog-other.jpg)
+
+| Model | Shapes | Looks | Time | Cost |
+|---|---|---|---|---|
+| Meta Muse Spark 1.3 | 163 | 5 | 86 s | $0.10 |
+| Qwen3.8 Max | 74 | 3 | 7 min 28 s | $0.26 |
+| Kimi K3.1 Pro | 250 | 4 | 1 min 56 s | $0.29 |
+| Gemma 4 31B | 145 | 2 | 3 min 59 s | $0.03 |
+
+### A simpler test
+
+"Paint a doughnut. Only use solid fills." Here are eighteen models in order of cost. Spending more usually helps, but not always.
+
+![The doughnut painted by the nine cheapest runs](docs/images/models-doughnut-1.jpg)
+
+![The doughnut painted by the nine more expensive runs](docs/images/models-doughnut-2.jpg)
+
+| Model | Shapes | Looks | Time | Cost |
+|---|---|---|---|---|
+| GPT-6 Luna | 31 | 1 | 32 s | ≈ $0.002 |
+| Claude Haiku 5.5 | 17 | 0 | 19 s | $0.002 |
+| Gemma 4 31B | 23 | 1 | 22 s | $0.006 |
+| GLM 5.3 | 24 | 0 | 48 s | $0.02 |
+| GPT-6.1 Terra | 81 | 2 | 36 s | ≈ $0.02 |
+| Claude Sonnet 5.5 | 20 | 0 | 10 s | $0.03 |
+| GPT-6.1 Sol | 54 | 1 | 28 s | ≈ $0.03 |
+| Meta Muse Spark 1.3 | 58 | 2 | 24 s | $0.03 |
+| Claude Opus 5.5 | 34 | 1 | 27 s | $0.09 |
+| Kimi K3.1 Pro | 81 | 2 | 71 s | $0.10 |
+| Gemini 4 Argon | 138 | 2 | 2 min 10 s | $0.10 |
+| Qwen3.8 Max | 38 | 2 | 3 min 19 s | $0.13 |
+| Gemini 3.8 Flash | 224 | 6 | 3 min 19 s | $0.17 |
+| Gemini 4 Hydrogen | 106 | 4 | 97 s | $0.19 |
+| GPT-6 Astra | 64 | 1 | 60 s | ≈ $0.19 |
+| Gemini 4 Carbon | 124 | 2 | 3 min 17 s | $0.20 |
+| Xiaomi MiMo v2.6 Pro | 30 | 2 | 44 s | $0.24 |
+| Claude Fable 5.2 | 55 | 1 | 63 s | $0.30 |
+
+### High SVG scores didn't always carry over
+
+[Design Arena](https://www.designarena.ai/leaderboard/svgs) runs a public leaderboard where people vote on SVGs made by AI models. These are its Illustrations sub-category scores for some of the models I tested, as read on 14 November 2026, when 133 models were ranked.
+
+![Design Arena Illustrations scores for ten models, each beside its Painty dog and doughnut](docs/images/design-arena.jpg)
+
+| Rank | Model | Illustrations score |
+|---|---|---|
+| 2 | Gemini 4 Carbon | 1,486 |
+| 3 | GPT-6 Astra | 1,465 |
+| 5 | Claude Fable 5.2 | 1,434 |
+| 7 | Gemini 4 Argon | 1,379 |
+| 8 | GPT-6.1 Terra | 1,365 |
+| 9 | Kimi K3.1 Pro | 1,364 |
+| 10 | GPT-6.1 Sol | 1,363 |
+| 12 | Claude Opus 5.5 | 1,316 |
+| 13 | Muse Spark 1.3 (listed there as "1.3 Max") | 1,315 |
+| 14 | Claude Sonnet 5.5 | 1,310 |
+
+Kimi, Muse Spark, Claude Opus and Claude Sonnet all rank in the top fifteen. But despite those scores for SVG illustration, in these runs they showed a poor ability to adapt what they know to a new system.
+
+### Putting a number on it
+
+Painty has benchmark cards: pictures made with Painty's own shapes, which a model has to copy exactly. The copy is scored pixel by pixel.
+
+![The combined benchmark card, a model's copy, the difference between them, and four models' scores](docs/images/benchmark-scores.jpg)
+
+| Model | Combined card |
+|---|---|
+| GPT-6 Luna | 82.6% |
+| Gemini 4 Argon | 91.9% |
+| GPT-6.1 Terra | 99.1% |
+| GPT-6.1 Sol | 99.9% |
+
+One run each, with vision on. [How the benchmark and its scoring work](docs/SETUP.md#benchmark).
+
+### Is this an efficient way to make a picture?
+
+Almost certainly not. If a finished image is all you're after, an image model is the obvious choice. I gave three of the prompts above to two image models through OpenRouter, one generation each:
+
+![The Mona Lisa cat, the knight on a tricycle and the wilted rose, as painted by Painty with GPT-6.1 Sol and as generated by two image models](docs/images/image-models.jpg)
+
+| | Average cost per image | Average time |
+|---|---|---|
+| Painty with GPT-6.1 Sol | ≈ $0.07 | about 100 s |
+| Gemini Nano Banana 2.1 | $0.04 | about 8 s |
+| GPT-5.4 Image 2 | $0.23 | about 100 s |
+
+And with SVG a model can lean on everything it saw in training, so it would probably be more accurate, especially with tricky perspective. Painty makes the model reason its way through an unfamiliar system, and more reasoning means more tokens, more time and more cost. I haven't measured an SVG baseline.
+
+Efficiency was never the point. These models weren't trained on Painty. They read the instructions, picked up an unfamiliar brush and painted with it. That's adaptation, and that's what Painty is built to show.
+
+## The app
+
+<table><tr>
+<td width="50%"><img src="docs/images/new-painting.jpg" alt="The New painting dialog: prompt, canvas shape, reference image, model and budgets"><br><sub>New painting: prompt, canvas, reference image, model and budgets</sub></td>
+<td width="50%"><img src="docs/images/gallery.jpg" alt="The gallery, with a filter chip for each model developer"><br><sub>The gallery, filtered by developer or favourites</sub></td>
+</tr><tr>
+<td width="50%"><img src="docs/images/painting-page.jpg" alt="A painting's page, with a snapshot of every stage and its full details"><br><sub>A painting's page: every stage, every look, tokens and cost</sub></td>
+<td width="50%"><img src="docs/images/model-browser.jpg" alt="The OpenRouter model browser sorted by Design Arena SVG rating"><br><sub>Browse OpenRouter models and sort them by benchmark scores</sub></td>
+</tr><tr>
+<td width="50%"><img src="docs/images/benchmarks.jpg" alt="The Benchmarks section, each tile showing its card and score"><br><sub>Benchmarks: each run with its card and score</sub></td>
+<td width="50%"><img src="docs/images/benchmark-page.jpg" alt="A benchmark painting's page with its score broken down"><br><sub>A benchmark run, scored item by item</sub></td>
+</tr></table>
 
 ## Key features
 
-- **A custom paint system.** Shapes are drawn by "dragging" from one corner to another, like Microsoft Paint. They can be turned to any angle or skewed, filled with flat colour or linear and radial blends, given outlines, sprayed on as speckle, feathered at the edges, and made see-through for shading and highlights. Lines can be bent into curves and tapered like brush strokes, and a trail walks a stroke leg by leg by compass heading.
-- **An exemplar to learn from.** Before it paints, Painty can be shown two practice sheets of numbered examples, painted by the same renderer and labelled with their boxes and coordinates, each listed with the exact shape text that drew it.
+- **A custom paint system.** Each shape is placed by giving two opposite corners of a box, and it fills that box. They can be turned to any angle or skewed, filled with flat colour or linear and radial blends, given outlines, sprayed on as speckle, feathered at the edges, and made see-through for shading and highlights. Lines can be bent into curves and tapered like brush strokes, and a trail walks a stroke leg by leg by compass heading.
+- **An exemplar to learn from.** Before it paints, Painty can be shown two exemplar sheets of numbered examples, painted by the same renderer and labelled with their boxes and coordinates, each listed with the exact shape text that drew it.
 - **Three canvas shapes.** Square (512 × 512), landscape (768 × 512) or portrait (512 × 768), chosen for each painting.
 - **Reference images.** Add a picture to a new painting. On its own, Painty tries to recreate it; with text, it uses it the way you say ("my dog as a cartoon", "a seascape in these colours"). The image picks the canvas shape for you.
 - **A benchmark.** Pick a benchmark card in the New painting dialog and Painty tries to reproduce it exactly. The cards are graded: basic shapes, rotation and skew, 3D solids, shading and effects, and letters made from lines, plus one combined card. Then score the result item by item, to compare models and settings.
@@ -27,135 +233,23 @@ It's an experiment in agent adaptation. The agent can't fall back on SVG or CSS 
 - **Benchmarks.** Benchmark paintings have a section of their own, opened with Benchmarks in the top bar. It works like the gallery, with the same filters and a chip for each card, and each tile names its card and shows its score.
 - **Full tracing.** Every drawing appears in the OpenAI Traces dashboard.
 
-## Tech stack
+## Try it
 
-- Python, [OpenAI Agents SDK](https://github.com/openai/openai-agents-python), FastAPI, Uvicorn
-- [resvg](https://github.com/linebender/resvg) (via `resvg-py`) to turn the canvas SVG into PNG, and Pillow for the agent's ruler-and-grid view
-- WebSockets for live updates
-- Vanilla HTML, CSS and JavaScript (no build step)
-- Docker and Docker Compose
-- pytest, using the SDK's scripted fake models (no API key needed)
-
-## Quick start
-
-You need Docker with the Compose plugin and an OpenAI API key.
-
-1. Clone the repo:
-   ```bash
-   git clone https://github.com/Oliver-J-Carr/Painty.git && cd Painty
-   ```
-2. Create your settings file:
-   ```bash
-   cp .env.example .env
-   ```
-3. Edit `.env` and set `OPENAI_API_KEY`, `OPENROUTER_API_KEY` or both. See [Models](#models).
-4. Build and start:
-   ```bash
-   docker compose up -d --build
-   ```
-5. Open <http://127.0.0.1:8091>, click **New painting** and ask Painty for a picture.
-
-Paintings and settings are kept in the `painty-data` Docker volume, so they survive rebuilds. Export any painting from the gallery (a PNG, a card or a zip of every file), import a zip back with Import, or copy the whole gallery out with `docker cp painty:/srv/data/gallery ./gallery-export`.
-
-To run the tests: `python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements-dev.txt && pytest -q`
-
-## Settings
-
-These are set on screen and saved between restarts. Changes apply to the next drawing. They're all in the **New painting** dialog, so you can change them as you ask for a picture. How many shapes to give when Painty asks for more isn't a setting: you type it on the paused card each time (it's filled in with what Painty asked for).
-
-| Setting | Default | What it does |
-|---|---|---|
-| Model | First of `PAINTY_MODELS` | The model that paints. The choices are `PAINTY_MODELS` plus any you add with **Browse OpenRouter models** |
-| Reasoning effort | The model's own | How hard the model thinks before each step. The choices are the chosen model's own, from OpenRouter's catalogue, with its default marked "(default)" and chosen when you pick the model. A model that can't reason shows "Unsupported". Models run directly on OpenAI take theirs from the same model on OpenRouter. Levels mean different things to different families: Claude's effort also sets how thorough it is overall, not just how long it thinks |
-| Let Painty see the canvas | On | Gives the agent the `look` tool. Off means it paints blind. Locked off for a text-only model |
-| Show Painty the exemplar sheet first | On | Locked off for a text-only model. Sends the two exemplar sheets and their shape text in the first message. See them at `/exemplar.png?sheet=1&grid=frame` and `/exemplar.txt` |
-| Grid on what Painty sees | Grid on the image | How every image Painty sees (its looks, the reference and the exemplar) marks positions: **Grid on the image** (lines and small numbers drawn on the picture, exactly canvas-sized), **Ruler frame** (numbered margin round the picture, 60 px bigger than the canvas) or **None**. Models, smaller ones especially, tend to do better when the image is exactly the canvas's size |
-| Let Painty write a plan before painting | Off | Painty's first turn is forced to call `plan`: composition, parts in paint order with boxes and colours, which parts overlap and which is in front, and stages. The plan costs no shapes, stays in the conversation, can be revised later, and is saved as `plan.txt` in the gallery. Some models, such as Claude Sonnet 5.5 and Opus 5.5, refuse forced tool calls, so they are only asked to plan, and the feed and `plan_forced` in `meta.json` say so |
-| Planning effort | The model's own | The reasoning effort for that planning turn only. Later turns use Reasoning effort. Set to the model's default whenever you pick a model, even while planning is off, so it's ready when you turn planning on. Greyed out while planning is off |
-| Shapes | 60 | The shapes Painty aims to fit the painting in. It may ask for more near the end |
-
-## Models
-
-Painty can run a model two ways, and you can use both side by side:
-
-- **Directly on OpenAI**, for a model id such as `gpt-6-luna`. Needs `OPENAI_API_KEY`.
-- **Through OpenRouter**, for any model id with a `/` in it, such as `google/gemma-4-31b-it` or `anthropic/claude-sonnet-5.5`. Needs `OPENROUTER_API_KEY`.
-
-To add an OpenRouter model, click **Browse OpenRouter models** in the New painting dialog, search, and click **Add**. Its prices come with it, so it needs nothing in `.env`. The browser lists models that can call tools and use OpenRouter's Responses API, with each one's reasoning levels and whether it sees images. Text-only models, such as GLM 5.3, are listed alongside the rest, marked with a crossed-out eye; tick **Sees images only** to hide them. A text-only model paints blind, with no exemplar sheets, reference image or benchmark card; the dialog locks those options and keeps your own for the next model. Added models are saved in `models.json` in the data folder.
-
-You can sort the list by newest, most popular, cheapest or name, and by score:
-
-- **Intelligence** and **Agentic**: the Artificial Analysis indices.
-- **Design Arena (SVG)**: the model's ELO in Design Arena's SVG category.
-- **Painty score**: the model's best score on your own runs of the combined benchmark card.
-
-Many models have no third-party score, and those go last.
-
-`gpt-6-luna` and `openai/gpt-6-luna` count as two models, so you can compare the two routes.
-
-For a painting made through OpenRouter, the gallery shows what OpenRouter billed. Other paintings show an estimate from the prices. An estimate can differ from the bill for an open model, because its hosts charge different prices. A price set in `.env` overrides the catalogue's price for estimates.
-
-Without `OPENAI_API_KEY`, traces aren't uploaded, and the SDK logs a warning about it. Set `OPENAI_AGENTS_DISABLE_TRACING=true` to turn tracing off cleanly. With the key set, OpenRouter runs are traced to OpenAI too, images included.
-
-## Benchmark
-
-Each benchmark card is a picture painted by Painty's own renderer from shapes in its own notation, so a perfect copy is possible with the tools Painty has. None of it repeats the exemplar.
-
-| Card | What it tests |
-|---|---|
-| Basic shapes | Rectangles and circles of different sizes, a thin bar, an outline and a line |
-| Rotation, skew and blends | Shapes turned to odd angles, two skews and a diagonal blend |
-| Solids | An isometric cube, a cylinder and a cone |
-| Effects | A shaded sphere, see-through circles, a glow, spray, a tapered stroke and a bent arc |
-| Letters | HAZE in straight lines, and SOUP, which needs curves |
-| Combined | A little of each, on one card |
-
-To run one, open **New painting** and choose a card under **Reference image**. It sets the canvas shape and fills in a standard prompt (you can edit it). It also sets and locks the budget, the same on every run so scores compare fairly: three times the card's own shapes plus 10 (rounded up to 5), because every correction is a new shape painted over the mistake, and 3 looks. A benchmark can't go over its budget or ask for more: a paint call past it is refused, and when its shapes run out, Painty finishes. Vision is still your choice, so you can compare blind runs (no looks) with sighted ones. See a card at `/benchmark/<name>.png` and its shapes at `/benchmark/<name>.txt` (`basic`, `intermediate`, `solids`, `effects`, `letters`, `combined`).
-
-Each benchmark painting is scored when it's saved. The score shows on the finished card and on the painting's gallery tile. The painting's page breaks it down item by item and shows the card, the painting and the difference side by side.
-
-The same scores from the command line:
+You need Docker with the Compose plugin, and an OpenAI or OpenRouter API key.
 
 ```bash
-docker exec painty python -m app.benchmark_score                   # every benchmark painting, one line each
-docker exec painty python -m app.benchmark_score <gallery id>      # item by item
-docker exec painty python -m app.benchmark_score <gallery id> --diff /srv/data/diff.png --json
-docker exec painty python -m app.benchmark_score --rescore           # save scores again (older paintings, or after the scorer changes)
+git clone https://github.com/Oliver-J-Carr/Painty.git && cd Painty
+cp .env.example .env          # then set OPENAI_API_KEY, OPENROUTER_API_KEY or both
+docker compose up -d --build
 ```
 
-Without Docker, run the same commands from the repo root with the venv active.
+Open <http://127.0.0.1:8091>, click **New painting** and ask for a picture.
 
-Each item gets these numbers:
+Models, settings, the benchmark and environment variables are covered in the **[setup guide](docs/SETUP.md)**. The design and the reasons behind it are in **[`docs/PDD.md`](docs/PDD.md)**.
 
-- **score**: the share of painted pixels where the copy matches the card, place and colour. 1 is perfect. Edges may be 1 px off without losing anything, so thin strokes aren't marked down for tiny slips.
-- **shape**: the same, ignoring colour.
-- **colour**: how close the colours are where both have paint.
-- **offset**: the shift that best lines the copy up with the card. Positive x means the copy sits to the right.
-- **shifted**: the shape score at that offset. A high shifted score with a low shape score means the right shape in the wrong place.
+## What should Painty paint next?
 
-The whole painting also gets a global offset, which shows whether the grid mode makes a copy drift.
-
-## Environment variables
-
-| Variable | Required | Purpose |
-|---|---|---|
-| `OPENAI_API_KEY` | One of these two | Calls models directly on OpenAI and uploads traces |
-| `OPENROUTER_API_KEY` | One of these two | Calls models with a `/` in their id through OpenRouter |
-| `PAINTY_MODELS` | No | Models always offered in the New painting dialog, comma separated. The first is the default. They must accept image input for vision and reference images |
-| `PAINTY_PRICE_<MODEL>` | No | A model's price, for the cost estimate in the gallery. Models added from OpenRouter don't need one. US dollars per million tokens as `input/cached/output/cache write`, for example `PAINTY_PRICE_GPT_6_1_SOL=2.00/0.10/10.00/2.50`. Leave off the cache write price for models before GPT-5.6, which don't bill writes. `.env.example` has current prices for the default models. The name is the model in capitals with other characters as `_`. Costs use the current prices, so older paintings are priced too |
-| `TRACE_WORKFLOW_NAME` | No | Name shown for each drawing in OpenAI Traces |
-| `OPENAI_AGENTS_DISABLE_TRACING` | No | Set to `true` to stop sending traces to OpenAI |
-| `DATA_DIR` | No | Where the gallery and saved settings live. Defaults to `data` (`/srv/data` in the container, which is the `painty-data` volume) |
-
-See `.env.example` for defaults.
-
-## How it works
-
-The design and the reasons behind it are in [`docs/PDD.md`](docs/PDD.md). In short:
-
-- The agent has four tools: `paint` (an ordered batch of shapes, each written as one short line such as `ellipse 196 180 316 300 #f2c9a0`), `look` (a PNG of the canvas, if vision is on), `request_shapes` (more shapes near the end, not in a benchmark) and `finish` (a title and a note).
-- Every shape becomes one SVG fragment. Your browser shows those fragments, and the server rasterises the very same SVG for the agent's eyes and the gallery, so what you see is exactly what the agent sees.
-- The budget is enforced in code. Once it's used up nothing more is painted, and the agent either finishes or asks for more. Asking ends the run cleanly with its history kept, so it resumes the same conversation with the shapes you give, or with your no.
+[Suggest a painting](../../issues/new?template=painting-idea.md). If I try it, the result goes in the [gallery](docs/GALLERY.md).
 
 ## Roadmap
 
