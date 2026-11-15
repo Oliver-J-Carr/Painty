@@ -8,9 +8,7 @@ Ask a model for a drawing and it will usually reach for SVG, a format it has see
 
 Every picture on this page was painted that way, by a language model calling a few simple tools: `paint`, `look` and `finish`.
 
-<!-- TODO (Oliver): add the video link here once it's uploaded, for example:
-**▶ [Watch the 8-minute demo](https://youtu.be/XXXXXXXX)**
--->
+### **▶ [Watch the 8-minute demo](https://youtu.be/Cy3utIDBFF0)**
 
 **[Gallery](docs/GALLERY.md)** · **[Set it up](docs/SETUP.md)** · **[How it's designed](docs/PDD.md)** · **[Suggest a painting](../../issues/new?template=painting-idea.md)**
 
